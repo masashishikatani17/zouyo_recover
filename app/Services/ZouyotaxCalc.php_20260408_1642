@@ -27,7 +27,9 @@ use App\Services\Zouyo\Cases\NoFinanceManualCase;
 use App\Services\Zouyo\Cases\HasFinanceLegalCase;
 use App\Services\Zouyo\Cases\HasFinanceManualCase;
 
+use App\Services\Zouyo\ZouyoGeneralRateResolver;
 
+use RuntimeException;
 
 /**
  * 相続税の対策前（これからの贈与は無視）計算
@@ -44,6 +46,134 @@ class ZouyotaxCalc
 {
 
 
+    /**
+     * 相続税速算表マスターから基礎控除額を取得する
+     *
+     * @param  \Illuminate\Support\Collection|array  $rateRows
+     * @return array{0:int,1:int}
+     */
+
+    private static function resolveSozokuBasicDeductionAmounts($rateRows, ?int $preferredYear = null, ?int $companyId = null): array
+    {
+        $first = null;
+
+        if ($rateRows instanceof \Illuminate\Support\Collection) {
+            $first = $rateRows->first();
+        } elseif (is_array($rateRows)) {
+            $first = $rateRows[0] ?? null;
+        }
+
+        $base    = data_get($first, 'basic_deduction_base_yen');
+        $perHeir = data_get($first, 'basic_deduction_per_heir_yen');
+ 
+        if ($base !== null && $perHeir !== null) {
+            return [(int) $base, (int) $perHeir];
+        }
+
+
+
+        // ★ 追加：
+        //   ここに来るのは「呼び出し元で取得した SozokuRate 行が空」または
+        //   「該当行に basic_deduction_* が無い」ケース。
+        //   年ズレ（例: DB は 2026、計算側は 2025）を吸収するため、
+        //   1) 希望年
+        //   2) 最新年
+        //   の順で company_id 優先 + global(null) を取り直す。
+
+        $queryBase = SozokuRate::query()
+            ->select([
+                'id',
+                'company_id',
+                'kihu_year',
+                'basic_deduction_base_yen',
+            'basic_deduction_per_heir_yen',
+            ])
+            ->whereNotNull('basic_deduction_base_yen')
+            ->whereNotNull('basic_deduction_per_heir_yen');
+
+        if ($companyId !== null && $companyId > 0) {
+            $queryBase->where(function ($q) use ($companyId) {
+                $q->where('company_id', $companyId)
+                  ->orWhereNull('company_id');
+            });
+        } else {
+            $queryBase->whereNull('company_id');
+        }
+
+        $pickRow = function (?int $year) use ($queryBase, $companyId) {
+            $q = clone $queryBase;
+
+            if ($year !== null) {
+                $q->where('kihu_year', $year);
+            }
+
+            // company_id 指定があるときは company一致を優先、その後 global(null)
+            if ($companyId !== null && $companyId > 0) {
+                $q->orderByRaw('CASE WHEN company_id = ? THEN 0 ELSE 1 END', [$companyId]);
+            }
+
+            $q->orderByDesc('kihu_year')
+              ->orderBy('id');
+
+            return $q->first();
+        };
+
+        // 1) 希望年で取得
+        $row = $pickRow($preferredYear);
+
+        // 2) 希望年で取れなければ最新年で取得
+        if (!$row) {
+            $row = $pickRow(null);
+        }
+
+        if ($row) {
+            return [
+                (int) $row->basic_deduction_base_yen,
+                (int) $row->basic_deduction_per_heir_yen,
+            ];
+        }
+
+        throw new RuntimeException('相続税の速算表マスターに基礎控除額が設定されていません。');
+
+    }
+
+    /**
+     * 基礎控除額の表示ラベルを生成する
+     * 例: 30,000千円＋6,000千円× 3人
+     */
+    private function buildSozokuBasicDeductionFormulaLabel(int $baseYen, int $perHeirYen, int $heirCount): string
+    {
+        $baseKyen    = (int) round($baseYen / 1000);
+        $perHeirKyen = (int) round($perHeirYen / 1000);
+
+        return number_format($baseKyen) . '千円＋'
+            . number_format($perHeirKyen) . '千円× '
+            . $heirCount . '人';
+    }
+
+    /**
+     * summary に基礎控除額の内訳・表示用ラベルを付与する
+     */
+    private function enrichBasicDeductionSummary(array $scenario, int $baseYen, int $perHeirYen, int $heirCount): array
+    {
+        if (!isset($scenario['summary']) || !is_array($scenario['summary'])) {
+            return $scenario;
+        }
+
+        $scenario['summary']['basic_deduction_base_yen']       = $baseYen;
+        $scenario['summary']['basic_deduction_per_heir_yen']   = $perHeirYen;
+        $scenario['summary']['basic_deduction_base_kyen']      = (int) round($baseYen / 1000);
+        $scenario['summary']['basic_deduction_per_heir_kyen']  = (int) round($perHeirYen / 1000);
+        $scenario['summary']['basic_deduction_formula_label']  = $this->buildSozokuBasicDeductionFormulaLabel(
+            $baseYen,
+            $perHeirYen,
+            $heirCount
+        );
+
+        return $scenario;
+    }
+
+
 
     /**
      * 贈与税率表キャッシュ（最新kihu_year・versionで読む。税率が年で変わらない前提でもOK）
@@ -53,6 +183,70 @@ class ZouyotaxCalc
 
     /** @var array<string,int> */
     private array $giftRateYearCache = [];
+
+
+    /** @var ?int */
+    private ?int $giftBasicDeductionYenResolved = null;
+
+    private function resolveGiftMasterPreferredYear(array $payload): ?int
+    {
+        foreach (['kihu_year', 'header_year', 'doc_year', 'year', 'future_base_year'] as $yearKey) {
+            $year = (int)($payload[$yearKey] ?? 0);
+            if ($year > 0) {
+                return $year;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveGiftMasterCompanyId(array $payload): ?int
+    {
+        $companyId = (int)($payload['company_id'] ?? 0);
+        return $companyId > 0 ? $companyId : null;
+    }
+
+    private function resolveGiftBasicDeductionYen(array $payload = []): int
+    {
+        if ($this->giftBasicDeductionYenResolved !== null) {
+            return $this->giftBasicDeductionYenResolved;
+        }
+
+        /** @var \App\Services\Zouyo\ZouyoGeneralRateResolver $resolver */
+        $resolver = app(ZouyoGeneralRateResolver::class);
+
+        $this->giftBasicDeductionYenResolved = $resolver->getBasicDeductionYen(
+            $this->resolveGiftMasterCompanyId($payload),
+            $this->resolveGiftMasterPreferredYear($payload)
+        );
+
+        return $this->giftBasicDeductionYenResolved;
+    }
+
+    private function resolveGiftBasicDeductionK(array $payload = []): int
+    {
+        return (int) round($this->resolveGiftBasicDeductionYen($payload) / 1000);
+    }
+
+    private function enrichGiftBasicDeductionSummary(array $scenario, array $payload): array
+    {
+        if (!isset($scenario['summary']) || !is_array($scenario['summary'])) {
+            return $scenario;
+        }
+
+        $giftBasicDeductionYen = $this->resolveGiftBasicDeductionYen($payload);
+
+        $scenario['summary']['gift_basic_deduction_yen'] = $giftBasicDeductionYen;
+        $scenario['summary']['gift_basic_deduction_label'] = '年間' . number_format($giftBasicDeductionYen) . '円';
+        $scenario['summary']['gift_basic_deduction_formula_label'] = '基礎控除額 ' . number_format($giftBasicDeductionYen) . '円';
+
+        return $scenario;
+    }
+
+
+
+
+
 
     /**
      * 税率表の対象年（最新のkihu_year）を解決
@@ -182,8 +376,13 @@ class ZouyotaxCalc
     /**
      * projections（年次表）用の「基準死亡日」を JS(future_zouyo.blade) と一致させる。
      *
-     * JS の死亡日は new Date(2024 + i, inherit_base_month/day...) で作られているため、
-     * PHP 側も「年=2024固定」「月日=inherit_base_month/day」を採用する。
+     * 年次表用の基準死亡日。
+     *
+     * これまでは年を 2024 固定にしていたため、
+     * projections.after[0] が 2024-05-07 になってしまっていた。
+     *
+     * 今後は「実際の死亡日年」を基準年として採用し、
+     * 月日だけ inherit_base_* / header_* / PastGiftInput から補完する。
      *
      * 優先順位（month/day）:
      *  1) payload inherit_base_month / inherit_base_day
@@ -249,9 +448,10 @@ class ZouyotaxCalc
     public function compute(array $payload, array $heirs): array
     {
         
-        // ★ data_id は当面固定（既存仕様を踏襲）
-        //$dataId   = (int)($payload['data_id'] ?? 0);
-        $dataId = 1;
+        $dataId = (int) ($payload['data_id'] ?? 0);
+
+        // ★ 贈与税の基礎控除額を先に確定して以後の内部計算で使い回す
+        $this->resolveGiftBasicDeductionYen($payload);
 
         //2025.12.18 01
 
@@ -428,12 +628,17 @@ class ZouyotaxCalc
         for ($idx = 2; $idx <= 10; $idx++) {
             $payloadBunsi = $toIntOrZero(data_get($payload, "bunsi.$idx", 0));
             $payloadBunbo = $toIntOrZero(data_get($payload, "bunbo.$idx", 0));
+            $payloadRelCode = $toIntOrZero(data_get($payload, "relationship_code.$idx", 0));
+            if ($payloadRelCode <= 0) {
+                $payloadRelCode = $toIntOrZero(data_get($payload, "relationship.$idx", 0));
+            }
 
             if (!isset($heirsByIdx[$idx])) {
                 $heirsByIdx[$idx] = [
-                    'idx'   => $idx,
-                    'bunsi' => $payloadBunsi,
-                    'bunbo' => $payloadBunbo,
+                    'idx'      => $idx,
+                    'bunsi'    => $payloadBunsi,
+                    'bunbo'    => $payloadBunbo,
+                    'rel_code' => $payloadRelCode,
                 ];
                 continue;
             }
@@ -444,9 +649,31 @@ class ZouyotaxCalc
             if ((int)($heirsByIdx[$idx]['bunbo'] ?? 0) <= 0 && $payloadBunbo > 0) {
                 $heirsByIdx[$idx]['bunbo'] = $payloadBunbo;
             }
+            if ((int)($heirsByIdx[$idx]['rel_code'] ?? 0) <= 0 && $payloadRelCode > 0) {
+                $heirsByIdx[$idx]['rel_code'] = $payloadRelCode;
+            }
         }
 
+
+
         $heirs = array_values($heirsByIdx);
+
+
+        /*
+        \Log::debug('2026.03.30 00001 [ZouyotaxCalc][heirs_rel_code_after_merge]', [
+            'heirs' => array_map(static function ($h) {
+                return [
+                    'idx' => (int)($h['idx'] ?? 0),
+                    'bunsi' => (int)($h['bunsi'] ?? 0),
+                    'bunbo' => (int)($h['bunbo'] ?? 0),
+                    'rel_code' => (int)($h['rel_code'] ?? 0),
+                ];
+            }, $heirs),
+        ]);
+        */
+
+
+
 
         /*
         Log::debug('2025.12.15 bunsi>=1 count', ['bunsiCount' => $bunsiCount]);
@@ -524,7 +751,23 @@ class ZouyotaxCalc
 
 
         // 3) 基礎控除
-        $basicDeduction = 30_000_000 + 6_000_000 * $heirCount;
+        $preferredSozokuRateYear = null;
+        foreach (['kihu_year', 'header_year', 'doc_year', 'year'] as $yearKey) {
+            $tmp = isset($payload[$yearKey]) ? (int) $payload[$yearKey] : 0;
+            if ($tmp > 0) {
+                $preferredSozokuRateYear = $tmp;
+                break;
+            }
+        }
+
+        [$basicDeductionBaseYen, $basicDeductionPerHeirYen] = self::resolveSozokuBasicDeductionAmounts(
+            $sozokuRateRows ?? $sozokuRates ?? $rates ?? [],
+            $preferredSozokuRateYear,
+            isset($payload['company_id']) ? (int)$payload['company_id'] : null
+        );
+
+        $basicDeduction = $basicDeductionBaseYen + ($basicDeductionPerHeirYen * $heirCount);        
+        
 
         // 4) 課税遺産総額（auto用の標準値）
         $taxableEstate = max(0, $estateYen - $basicDeduction);
@@ -611,6 +854,20 @@ class ZouyotaxCalc
         
             
             /*
+            Log::debug('2026.03.23 00001 [ZouyotaxCalc][legal_share_row][compute]', [
+                'idx' => $idx,
+                'bunsi' => $bunsi,
+                'bunbo' => $bunbo,
+                'legal_ratio' => $legalRatio,
+                'legal_share_base' => $legalShareBase,
+                'legal_tax_yen' => $legalTax,
+            ]);
+            */
+
+
+
+
+            /*
             // ★ここで法定算出税額の中身を確認
             Log::info('2025.12.15 20001 [ZouyotaxCalc][6-1] legal share', [
                 'data_id'            => $dataId,
@@ -648,6 +905,16 @@ class ZouyotaxCalc
             ];
         }
         
+        /*
+        Log::debug('2026.03.23 00002 [ZouyotaxCalc][legal_share_total][compute]', [
+            'estate_yen' => $estateYen,
+            'basic_deduction' => $basicDeduction,
+            'taxable_estate_used' => $taxableEstateUsed,
+            'total_legal_share_tax' => $totalLegalShareTax,
+        ]);
+        */
+
+
 
         /*
         // 合計もログ
@@ -1006,9 +1273,11 @@ class ZouyotaxCalc
         $totalOtherCredits         = 0;
         $totalPayableAfterOthers   = 0;
         $totalSashihikiTax         = 0;
-        $totalSettlementGiftTaxes  = 0; // ★実際に控除できた精算贈与税（相続税の範囲内）
-        $totalFinalAfterSettlement = 0; // ★支払税額合計（負値は入れない）
-        $totalRefundTax            = 0; // ★還付合計（精算控除が相続税を上回った分）
+        $totalSettlementGiftTaxes   = 0; // ★実際に控除できた精算贈与税（相続税の範囲内）
+        $totalRawFinalAfterSettlement = 0; // ★No17 小計（マイナスあり）
+        $totalFinalAfterSettlement  = 0; // ★納付税額合計（マイナスは含めない）
+        $totalRefundTax             = 0; // ★還付合計（精算控除が相続税を上回った分）
+
 
         // 法定相続人マップ（rel_code / legal_ratio 等を引くため）
         $heirMap = [];
@@ -1149,14 +1418,16 @@ class ZouyotaxCalc
             $totalSashihikiTax += $sashihikiTax;
 
             // 精算課税贈与税控除
-            $settlementGiftTaxYen = max(0, (int)($settlementGiftTaxes[$idx] ?? 0));
-            $appliedSetCredit     = min(max(0, $sashihikiTax), $settlementGiftTaxYen);
-            $finalAfterSettlement = $sashihikiTax - $appliedSetCredit; // ★必ず >=0
-            $refundYen            = max(0, $settlementGiftTaxYen - $appliedSetCredit);
+            $settlementGiftTaxYen   = max(0, (int)($settlementGiftTaxes[$idx] ?? 0));
+            $appliedSetCredit       = min(max(0, $sashihikiTax), $settlementGiftTaxYen);
+            $rawFinalAfterSettlement = $sashihikiTax - $settlementGiftTaxYen; // ★No17 小計そのもの
+            $finalAfterSettlement   = max(0, $rawFinalAfterSettlement);       // ★No18 納付税額
+            $refundYen              = $rawFinalAfterSettlement < 0 ? abs($rawFinalAfterSettlement) : 0; // ★No19 還付税額
 
-            $totalSettlementGiftTaxes  += $appliedSetCredit;
-            $totalFinalAfterSettlement += $finalAfterSettlement;
-            $totalRefundTax            += $refundYen;
+            $totalSettlementGiftTaxes   += $appliedSetCredit;
+            $totalRawFinalAfterSettlement += $rawFinalAfterSettlement;
+            $totalFinalAfterSettlement  += $finalAfterSettlement;
+            $totalRefundTax             += $refundYen;
 
 
             // ------------------------------------------------------------
@@ -1174,6 +1445,27 @@ class ZouyotaxCalc
                 $payableRatioPct = round(($payableTaxYen / $taxablePriceYen) * 100, 2, PHP_ROUND_HALF_UP);
                 $payableRatioStr = number_format($payableRatioPct, 2, '.', '') . '%';
             }
+            
+
+            /*
+            Log::debug('2026.03.23 00003 [ZouyotaxCalc][tax_flow_row][compute]', [
+                'idx' => $idx,
+                'anbun_ratio' => $anbunRatio,
+                'sanzutsu' => $sanzutsu,
+                'two_tenths' => $twoTenths,
+                'final_tax' => $finalTax,
+                'credit_calendar_yen' => $creditCalendar,
+                'spouse_relief_yen' => $spouseRelief,
+                'other_credit_yen' => $otherCreditYen,
+                'settlement_gift_tax_yen' => $settlementGiftTaxYen,
+                'final_after_settlement_yen' => $finalAfterSettlement,
+            ]);
+            */
+
+
+
+
+            
 
             $breakdown[] = [
                 'row_index'   => $idx,
@@ -1201,9 +1493,13 @@ class ZouyotaxCalc
                 'payable_after_others_yen' => $payAfterOthers,
                 'sashihiki_tax_yen'  => $sashihikiTax,
                 'settlement_gift_tax_yen' => max(0, $settlementGiftTaxYen),
-                'final_after_settlement_yen' => $finalAfterSettlement,
+
+                'raw_final_after_settlement_yen' => $rawFinalAfterSettlement,
+                // ★PDF互換：No17 は No15-No16 の生値を使う
+                'final_after_settlement_yen' => $rawFinalAfterSettlement,
+
                 'payable_tax_yen' => $finalAfterSettlement > 0 ? $finalAfterSettlement : 0,
-                'refund_tax_yen'  => $finalAfterSettlement < 0 ? abs($finalAfterSettlement) : 0,
+                'refund_tax_yen'  => $refundYen,
 
 
                 // ★追加：課税価格（円）と納付税額割合
@@ -1231,6 +1527,18 @@ class ZouyotaxCalc
        ]);
        */
        
+
+        /*
+        Log::debug('2026.03.23 00004 [ZouyotaxCalc][tax_flow_total][compute]', [
+            'total_after_surcharge' => $finalTotalAfterSurcharge,
+            'total_gift_tax_credits' => $totalGiftTaxCredits,
+            'total_spouse_relief' => $totalSpouseRelief,
+            'total_other_credits' => $totalOtherCredits,
+            'total_settlement_gift_taxes' => $totalSettlementGiftTaxes,
+            'total_final_after_settlement' => $totalFinalAfterSettlement,
+        ]);
+        */
+
 
 
         // -------------------------
@@ -1278,13 +1586,21 @@ class ZouyotaxCalc
                 'total_payable_after_others'    => $totalPayableAfterOthers,
                 'total_sashihiki_tax'           => $totalSashihikiTax,
                 'total_settlement_gift_taxes'   => $totalSettlementGiftTaxes,
+
+
+                'total_raw_final_after_settlement' => $totalRawFinalAfterSettlement,
+                // ★No18（納付税額合計）
                 'total_final_after_settlement'  => $totalFinalAfterSettlement,
+
 
                 // ★ 贈与税累計（暦年＋精算）※受贈者全員分
                 'gift_tax_cum_yen'              => $giftTaxCumYen,
                 
-                // ★最終相続税額（精算課税分控除後）＝画面表示用
-                'final_after_settlement_yen'    => $totalFinalAfterSettlement,
+                // ★PDF互換：No17 合計は No15-No16 の生値
+                'final_after_settlement_yen'    => $totalRawFinalAfterSettlement,
+                // ★No18 合計を明示
+                'payable_tax_yen'               => $totalFinalAfterSettlement,
+
 
                 'anbun_mode' => $anbunMode,
                 'anbun_total_kyen' => $anbunTotalKyen,
@@ -1575,10 +1891,60 @@ class ZouyotaxCalc
             // ★ 贈与税額累計（円）：過去分＋将来分（t年次まで）
             $projAfter[$t]['summary']['calendar_gift_tax_cum_yen']
                 = $baseGiftTaxCumYen + $this->toYen($futureTaxKTillT);
+            $projAfter[$t]['summary']['gift_tax_cum_yen']
+                = $projAfter[$t]['summary']['calendar_gift_tax_cum_yen'];
+
+
+
 
         $projDelta[$t] = $this->buildDelta($projBefore[$t], $projAfter[$t]);
         } // end for t
 
+
+
+
+        // ★ PDF / プレビュー用に基礎控除額の内訳を summary へ付与
+        $before = $this->enrichBasicDeductionSummary(
+            $before,
+            $basicDeductionBaseYen,
+            $basicDeductionPerHeirYen,
+            $heirCount
+        );
+        $after = $this->enrichBasicDeductionSummary(
+            $after,
+            $basicDeductionBaseYen,
+            $basicDeductionPerHeirYen,
+            $heirCount
+        );
+
+        foreach ($projBefore as $tt => $row) {
+            $projBefore[$tt] = $this->enrichBasicDeductionSummary(
+                $row,
+                $basicDeductionBaseYen,
+                $basicDeductionPerHeirYen,
+                $heirCount
+            );
+        }
+        foreach ($projAfter as $tt => $row) {
+            $projAfter[$tt] = $this->enrichBasicDeductionSummary(
+                $row,
+                $basicDeductionBaseYen,
+                $basicDeductionPerHeirYen,
+                $heirCount
+            );
+        }
+
+
+        // ★ 贈与税の基礎控除額（一般税率マスター由来）も summary に付与
+        $before = $this->enrichGiftBasicDeductionSummary($before, $payload);
+        $after  = $this->enrichGiftBasicDeductionSummary($after, $payload);
+
+        foreach ($projBefore as $tt => $row) {
+            $projBefore[$tt] = $this->enrichGiftBasicDeductionSummary($row, $payload);
+        }
+        foreach ($projAfter as $tt => $row) {
+            $projAfter[$tt] = $this->enrichGiftBasicDeductionSummary($row, $payload);
+        }
 
         // ★ 「これからの贈与」が一切無い場合は、対策後シナリオを対策前と完全一致させる
         //   （相続税・贈与税累計・合計が before / projections.before と同じになるよう強制）
@@ -1638,15 +2004,68 @@ class ZouyotaxCalc
 
         // ★ 課税価格の定義を統一：
         //   taxable_estate = estate_after_yen + incl_calendar_yen + incl_settlement_yen
-        //   （対策後 after ＋ 年次プロジェクション projections.after に適用）
-        [$after, $projAfter] = $this->normalizeTaxableEstateForAfter($after, $projAfter);
 
-        // ★ after／年次プロジェクションの課税遺産総額を「各相続人の課税価格比率」で按分
+        // ★重要：
+        //   先に「贈与後遺産(estate_after_yen)」を各相続人へ按分して
+        //   heirs[].estate_base_share_yen を確定させる
+        //   → allocateTaxableEstateByFixedRatios() はこの値を最優先で参照するため
+        [$after, $projAfter] = $this->allocateEstateBaseByFixedRatios($after, $projAfter, $payload);
+
+        // ★ after／年次プロジェクションの課税遺産総額を
+        //   「estate_base_share_yen + past_gift_included_yen」に基づく
+        //   最終課税価格比率で按分
         [$after, $projAfter] = $this->allocateTaxableEstateByFixedRatios($after, $projAfter);
 
-        // ★ after／年次プロジェクションの所有財産(estate_base_yen)も
-        //   同じ比率で各相続人に按分（heirs[].estate_base_share_yen）
-        [$after, $projAfter] = $this->allocateEstateBaseByFixedRatios($after, $projAfter, $payload);
+        // ★ ここで確定した taxable_share_yen を唯一の正として、
+        //   対策後 after / projections.after の算出税額以降を再計算する
+        $after = $this->recomputeScenarioTaxesFromTaxableShares($after, $payload, $dataId);
+        if (is_array($projAfter)) {
+            foreach ($projAfter as $tt => $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $projAfter[$tt] = $this->recomputeScenarioTaxesFromTaxableShares($row, $payload, $dataId);
+            }
+        }
+
+
+
+
+        // ★対策後の最終 taxable_share_yen 比率ログ
+        //   - computeForGivenEstateAndDate() 内の値ではなく、
+        //     normalizeTaxableEstateForAfter() + allocateTaxableEstateByFixedRatios()
+        //     後の「最終確定値」を基準に出す
+        for ($tt = 0; $tt <= 2; $tt++) {
+            if (!isset($projAfter[$tt]['summary'], $projAfter[$tt]['heirs'])) {
+                continue;
+            }
+
+            $finalTaxableEstate = (int)($projAfter[$tt]['summary']['taxable_estate'] ?? 0);
+            $finalEstateYen     = (int)($projAfter[$tt]['summary']['estate_yen'] ?? 0);
+
+            foreach (($projAfter[$tt]['heirs'] ?? []) as $row) {
+                $idx = (int)($row['row_index'] ?? 0);
+                if ($idx < 2 || $idx > 10) {
+                    continue;
+                }
+
+                $taxableShareYen = (int)($row['taxable_share_yen'] ?? 0);
+                $baseRatioT0     = $finalTaxableEstate > 0
+                    ? ((float)$taxableShareYen / (float)$finalTaxableEstate)
+                    : 0.0;
+
+                /*
+                Log::debug('2026.01.14 0000001 [after_virtual_per_idx_final]', [
+                    't'                  => $tt,
+                    'idx'                => $idx,
+                    'estate_yen'         => $finalEstateYen,
+                    'taxable_estate'     => $finalTaxableEstate,
+                    'taxable_share_yen'  => $taxableShareYen,
+                    'base_ratio_t0'      => $baseRatioT0,
+                ]);
+                */
+            }
+        }
 
         // ★ 各受贈者（行2?10）の「対策前の所有財産の推移」＋
         //   将来贈与・相続取得・相続税を persons.timeline に格納
@@ -2357,6 +2776,9 @@ class ZouyotaxCalc
         //     3年以内→3年超へ移動した贈与に控除が掛かり、
         //     before_proj の相続税が t>=1 で不自然に減る。
         $useOneMillionExemption = ($deathDate >= new \DateTimeImmutable('2027-01-02'));
+        
+        $giftBasicDeductionK = $this->resolveGiftBasicDeductionK($payload);
+        
 
         // 暦年：受贈者×年ごとに「3年以内」と「3年超」の金額を別管理する（単位：千円）
         $perCalWithin3K = []; // [recipient_no][gift_year] => int
@@ -2481,9 +2903,9 @@ for ($no = 2; $no <= 10; $no++) {
 
             $year = (int)($r->gift_year ?? 0);
             
-            // amount_thousand は「千円」単位なので、控除は 1100（=110万円）で行う
+            // amount_thousand は「千円」単位なので、控除は一般税率マスターの基礎控除額で行う
             if ($year >= 2024) {
-                $amtK = max(0, (int)($r->amount_thousand ?? 0) - 1100);
+                $amtK = max(0, (int)($r->amount_thousand ?? 0) - $giftBasicDeductionK);                
             } else {
                 $amtK = max(0, (int)($r->amount_thousand ?? 0));
             }
@@ -2523,6 +2945,25 @@ for ($no = 2; $no <= 10; $no++) {
         for ($i = 2; $i <= 10; $i++) {
             $totalCal += (int)($perCal[$i] ?? 0);
         }
+
+
+
+        /*
+        Log::debug('2026.03.23 00005 [ZouyotaxCalc][past_gift_included_result]', [
+            'data_id' => $dataId,
+            'death_date' => $deathDate->format('Y-m-d'),
+            't' => $t,
+            'heirIdxList' => $heirIdxList,
+            'targetSet' => array_keys($targetSet),
+            'total_yen' => $total,
+            'calendar_total_yen' => $totalCal,
+            'settlement_total_yen' => $totalSet,
+            'per_idx' => $per,
+            'calendar_per_idx' => $perCal,
+            'settlement_per_idx' => $perSet,
+        ]);
+        */
+
 
         /*
         // ★ デバッグ用ログ：過年度贈与算入額の集計結果を確認
@@ -3006,7 +3447,16 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
 
             if ($isHeir) {
 
-                $relCode = $this->readIntFromArray($payload, 'relationship', $i);
+
+                // 続柄は画面側で relationship_code を使っているため、まずこちらを正とする。
+                // 後方互換で relationship もフォールバックとして読む。
+                $relCode = $this->readIntFromArray($payload, 'relationship_code', $i);
+                if ($relCode <= 0) {
+                    $relCode = $this->readIntFromArray($payload, 'relationship', $i);
+                }
+
+
+
                 $twoTenths = $this->checkboxOn($payload, 'twenty_percent_add', $i);
                 $heirs[] = [
                      'idx'        => $i,
@@ -3510,9 +3960,7 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
     ): array {
 
 
-        //2025.12.18 02
-        // ★ 現行仕様：compute() と同じく data_id=1 固定でプロジェクションも評価する
-        $dataId = 1;
+        $dataId = (int) ($payload['data_id'] ?? 0);
 
 
         // overrideがある場合のみ $giftIncl に代入（後続で上書きしない）
@@ -4118,6 +4566,18 @@ for ($i = 0; $i <= $t; $i++) {
         if ($sumPriceForRatio > 0) {
             foreach ($priceForRatioByIdx as $idx => $price) {
                 $anbunRatiosForYear[$idx] = $price / $sumPriceForRatio;
+                
+                if ($t < 2){            
+                    Log::debug('2026.03.18 100001 ', [
+                        't'   => $t,
+                        'idx' => $idx,
+                        'price' => $price,
+                        'sumPriceForRatio' => $sumPriceForRatio,
+                        'anbunRatiosForYear[idx]' => $anbunRatiosForYear[$idx],
+                    ]);
+                }
+                
+                
             }
         } else {
             // 万一すべて 0 なら、従来どおり t=0 の比率をそのまま使用
@@ -4236,9 +4696,11 @@ for ($i = 0; $i <= $t; $i++) {
         $totalOtherCredits         = 0;
         $totalPayableAfterOthers   = 0;
         $totalSashihikiTax         = 0;
-        $totalSettlementGiftTaxes  = 0; // ★実際に控除できた精算贈与税（相続税の範囲内）
-        $totalFinalAfterSettlement = 0; // ★支払税額合計（負値は入れない）
-        $totalRefundTax            = 0; // ★還付合計（精算控除が相続税を上回った分）
+        $totalSettlementGiftTaxes   = 0; // ★実際に控除できた精算贈与税（相続税の範囲内）
+        $totalRawFinalAfterSettlement = 0; // ★No17 小計（マイナスあり）
+        $totalFinalAfterSettlement  = 0; // ★納付税額合計（マイナスは含めない）
+        $totalRefundTax             = 0; // ★還付合計（精算控除が相続税を上回った分）
+
 
         // 法定相続人マップ（rel_code / legal_ratio 等を引くため）
         $heirMap = [];
@@ -4272,12 +4734,65 @@ for ($i = 0; $i <= $t; $i++) {
 
 
 
+        // ★ after_virtual ログ用：
+        //   実際の taxable_share_yen（floor配分＋端数寄せ）を先に確定しておく
+        //   → base_ratio_t0 = taxable_share_yen / taxableEstateUsed として出すため
+        $taxableShareYenByIdxForLog = array_fill(2, 9, 0);
+        if ($context === 'after_virtual' && $taxableEstateUsed > 0) {
+            $allocatedTaxableShareYen = 0;
+            $firstTaxableIdxForLog = null;
+            $lastTaxableIdxForLog  = null; // 保険
+
+            for ($i = 2; $i <= 10; $i++) {
+                $r = (float)($anbunRatiosForYear[$i] ?? 0.0);
+                if ($r <= 0.0) {
+                    continue;
+                }
+                if ($firstTaxableIdxForLog === null) {
+                    $firstTaxableIdxForLog = $i;
+                }
+                $lastTaxableIdxForLog = $i;
+
+                $share = (int)floor($taxableEstateUsed * $r);
+                $taxableShareYenByIdxForLog[$i] = $share;
+                $allocatedTaxableShareYen += $share;
+            }
+
+            $targetTaxableIdxForLog = $firstTaxableIdxForLog ?? $lastTaxableIdxForLog;
+            if ($targetTaxableIdxForLog !== null) {
+                $taxableShareYenByIdxForLog[$targetTaxableIdxForLog] += ($taxableEstateUsed - $allocatedTaxableShareYen);
+            }
+        }
+
+
+
+
         for ($idx = 2; $idx <= 10; $idx++) {
             $isHeir  = isset($heirMap[$idx]);
             $relCode = $heirMap[$idx]['rel_code'] ?? 0;
 
             // ★ この年の課税価格に基づくあん分割合（ベース比率＋その年の贈与加算を反映）
             $anbunRatio = (float)($anbunRatiosForYear[$idx] ?? 0.0);
+
+            // ★ログ用 baseRatioT0
+            //   - before_proj   : 従来どおり t=0 の退避比率を使用
+            //   - after_virtual : その年の taxable_share_yen 比率を使用したいので、
+            //                     「課税遺産総額 × 比率」で算出される taxable_share_yen を
+            //                     逆算して比率に戻す
+            //
+            //   taxable_share_yen_i / taxableEstateUsed
+            //     = (taxableEstateUsed * anbunRatio)_i / taxableEstateUsed
+            //     = anbunRatio
+            //
+            //   ※ taxableEstateUsed=0 の年は 0 扱い
+            $baseRatioT0ForLog = (float)($anbunRatiosT0[$idx] ?? 0.0);
+            if ($context === 'after_virtual') {
+                $baseRatioT0ForLog = $taxableEstateUsed > 0
+                    ? ((float)($taxableShareYenByIdxForLog[$idx] ?? 0) / (float)$taxableEstateUsed)
+                    : 0.0;
+            }
+
+
 
             // 算出税額：相続税総額 × その年のあん分割合
             $sanzutsu = (int)round($totalLegalShareTax * $anbunRatio);
@@ -4297,20 +4812,23 @@ for ($i = 0; $i <= $t; $i++) {
             */
             
             
-            if ($context === 'before_proj' && $t === 0) {
+            /*
+            if ($context === 'after_virtual' && $t < 3) {
 
                 // ★ t=0 のベース比率（ログ用）
                 $baseRatioT0 = (float)($anbunRatiosT0[$idx] ?? 0.0);
 
 
-                /*
+                
                 Log::debug('2026.01.14 0000001 [' . $context . '_per_idx]', [
                     't'                 => $t,
+                    'idx'               => $idx,
                     'context'           => $context,
                     'estate_yen'        => $estateYen,
-                    'idx'               => $idx,
+                    'taxable_estate_used' => $taxableEstateUsed,
                     'is_heir'           => $isHeir,
-                    'base_ratio_t0'     => $baseRatioT0,
+                    'base_ratio_t0'     => $baseRatioT0ForLog,
+                    'taxable_share_yen' => (int)($taxableShareYenByIdxForLog[$idx] ?? 0),
                     'anbun_ratio'       => $anbunRatio,   // その年の課税価格ベース比率
                     'price_for_ratio'   => $priceForRatioByIdx[$idx] ?? null,
                     'totalLegalShareTax'=> $totalLegalShareTax,
@@ -4318,9 +4836,10 @@ for ($i = 0; $i <= $t; $i++) {
                     'two_tenths'        => $twoTenths,
                     '2割加算額final_tax'         => $finalTax,
                 ]);
-                */
+                
                 
             }
+            */
             
             
             
@@ -4377,27 +4896,16 @@ for ($i = 0; $i <= $t; $i++) {
 
 
             // 精算課税贈与税控除（★全員・全額。ただし相続税を下回る範囲で控除、超過は還付）
-            $settlementGiftTaxYen = max(0, (int)($settlementGiftTaxes[$idx] ?? 0));
-            $appliedSetCredit     = min(max(0, $sashihikiTax), $settlementGiftTaxYen);
-            $finalAfterSettlement = $sashihikiTax - $appliedSetCredit; // ここは必ず >=0
-            $refundYen            = max(0, $settlementGiftTaxYen - $appliedSetCredit);
+            $settlementGiftTaxYen   = max(0, (int)($settlementGiftTaxes[$idx] ?? 0));
+            $appliedSetCredit       = min(max(0, $sashihikiTax), $settlementGiftTaxYen);
+            $rawFinalAfterSettlement = $sashihikiTax - $settlementGiftTaxYen; // ★No17 小計そのもの
+            $finalAfterSettlement   = max(0, $rawFinalAfterSettlement);       // ★No18 納付税額
+            $refundYen              = $rawFinalAfterSettlement < 0 ? abs($rawFinalAfterSettlement) : 0; // ★No19 還付税額
 
-            /*
-            Log::debug('2025.12.25 80003 ', [
-                't'        => $t,
-                'idx'      => $idx,
-                'sashihikiTax'         => $sashihikiTax,
-                'finalAfterSettlement' => $finalAfterSettlement,
-                'appliedSetCredit'     => $appliedSetCredit,
-                'settlementGiftTaxYen' => $settlementGiftTaxYen,
-            ]);
-            */
-            
-
-
-            $totalSettlementGiftTaxes  += $appliedSetCredit;
-            $totalFinalAfterSettlement += $finalAfterSettlement;
-            $totalRefundTax            += $refundYen;
+            $totalSettlementGiftTaxes   += $appliedSetCredit;
+            $totalRawFinalAfterSettlement += $rawFinalAfterSettlement;
+            $totalFinalAfterSettlement  += $finalAfterSettlement;
+            $totalRefundTax             += $refundYen;
 
             /*
             if ( $t === 1 ){
@@ -4436,9 +4944,14 @@ for ($i = 0; $i <= $t; $i++) {
                 'payable_after_others_yen' => $payAfterOthers,
                 'sashihiki_tax_yen'  => $sashihikiTax,
                 'settlement_gift_tax_yen' => max(0, $settlementGiftTaxYen),
-                'final_after_settlement_yen' => $finalAfterSettlement,
+
+                'raw_final_after_settlement_yen' => $rawFinalAfterSettlement,
+                // ★PDF互換：No17 は No15-No16 の生値
+                'final_after_settlement_yen' => $rawFinalAfterSettlement,
+
                 'payable_tax_yen' => $finalAfterSettlement > 0 ? $finalAfterSettlement : 0,
-                'refund_tax_yen'  => $finalAfterSettlement < 0 ? abs($finalAfterSettlement) : 0,
+                'refund_tax_yen'  => $refundYen,
+
             ];
         }
 
@@ -4526,6 +5039,14 @@ for ($i = 0; $i <= $t; $i++) {
 
         return [
             'summary' => [
+
+                // ★年次識別用
+                //   recomputeScenarioTaxesFromTaxableShares() 側で
+                //   t=1 の実logを確実に出すために保持する
+                't'               => $t,
+                'projection_year' => $t,
+                'scenario_context'=> $context,
+
                 'estate_yen'       => $estateYen,
                 // ★ after_virtual のときは「贈与後遺産（将来贈与控除後）」を別キーでも明示
                 'estate_after_yen' => $estateAfterYen,
@@ -4552,9 +5073,15 @@ for ($i = 0; $i <= $t; $i++) {
                 'total_sashihiki_tax'           => $totalSashihikiTax,
                 'total_settlement_gift_taxes'   => $totalSettlementGiftTaxes,   // ★実際に控除できた分（合計）
                 'total_refund_tax_yen'          => $totalRefundTax,             // ★還付合計
-                'total_final_after_settlement'  => $totalFinalAfterSettlement,  // ★支払税額合計
-                // ★画面の「相続税」は“支払税額合計”を表示（還付は別表示）
-                'final_after_settlement_yen'    => $totalFinalAfterSettlement,
+
+                'total_raw_final_after_settlement' => $totalRawFinalAfterSettlement,
+                'total_final_after_settlement'  => $totalFinalAfterSettlement,  // ★No18 支払税額合計
+                // ★PDF互換：No17 合計は No15-No16 の生値
+                'final_after_settlement_yen'    => $totalRawFinalAfterSettlement,
+                // ★No18 合計を明示
+                'payable_tax_yen'               => $totalFinalAfterSettlement,
+
+
 
             ],
 
@@ -4680,11 +5207,12 @@ for ($i = 0; $i <= $t; $i++) {
 
         // ★ 初期化（この2キーだけ固定）
         $out = ['calendar' => [], 'settlement' => []];
+        $giftBasicDeductionK = $this->resolveGiftBasicDeductionK($payload);        
 
         // ------------------------------------------------------------
         // ① 将来贈与は payload ではなく DB の future_gift_plan_entries を唯一の正として扱う
         // ------------------------------------------------------------
-        $dataId = (int)($payload['data_id'] ?? 1);
+        $dataId = (int)($payload['data_id'] ?? 0);        
 
         $saved = FutureGiftPlanEntry::where('data_id', $dataId)
                    // ★ 0始まり（0..19）データの混在も拾う
@@ -4710,8 +5238,10 @@ for ($i = 0; $i <= $t; $i++) {
                 if ($calTaxK <= 0) {
                     $amtK = (int)($r->calendar_amount_thousand ?? 0);
                     if ($amtK > 0) {
-                        // JSと同様：afterK = max(amountK - 1100, 0)
-                        $afterK = max($amtK - 1100, 0);
+
+                        // JSと同様：afterK = max(amountK - 基礎控除額, 0)
+                        $afterK = max($amtK - $giftBasicDeductionK, 0);
+
                         $isTok  = $this->isTokureiRecipient($dataId, (int)$r->recipient_no);
                         $calTaxK = $this->calcCalendarGiftTaxK($afterK, $isTok);
                     }
@@ -4853,6 +5383,7 @@ for ($i = 0; $i <= $t; $i++) {
         // ★No=1原資の残高（これが尽きたら、それ以降の将来贈与は「未実行」扱い）
         $remainingBudgetYen = max(0, $giftBudgetYen);
 
+        $giftBasicDeductionYen = $this->resolveGiftBasicDeductionYen();
         
         [$start, $end, $kasan_case] = $this->determineCalendarGiftLookbackRange($deathDateT);
 
@@ -5192,7 +5723,7 @@ for ($i = 0; $i <= $t; $i++) {
                // 2024年以降の場合は1100000円を控除
                $giftYear = (int)substr($deathDateT->format('Y'), 0, 4);  // 贈与年を取得
                if ($giftYear >= 2024) {
-                   $yenKasan = max(0, $yen - 1100000);  // 控除後の金額
+                   $yenKasan = max(0, $yen - $giftBasicDeductionYen);  // 控除後の金額                   
                    //log::DEBUG('2025.12.10 50003 giftYear = '.$giftYear,['yen',$yenKasan]);
                }
             
@@ -5305,10 +5836,18 @@ for ($i = 0; $i <= $t; $i++) {
         ?array $giftTaxCreditsOverride = null,
         int $t = 0
     ): array {
-        $dataId = 1;
+
+        $dataId = (int) ($payload['data_id'] ?? 0);
 
         $taxableAcquirerIdxList = $this->resolveTaxableAcquirerIdxList($payload, $heirs);
 
+
+        // ★重要：
+        //   t=0 の after は「これからの贈与」を一切考慮しない。
+        //   将来贈与データが存在していても、t=0 では必ず futurePlan 無しとして扱う。
+        $useFuturePlan = ($t > 0) && !empty($futurePlan);
+ 
+ 
 
         // ★仕様：No=1の金融資産は運用しない（t=0はそのまま）
         $cashGrown = $this->decedentCashAtYear($cashNowYen, 0, $rate);
@@ -5323,32 +5862,24 @@ for ($i = 0; $i <= $t; $i++) {
             'estate_after_other_yen' => $propertyNonCashYen,
         ];
 
-        // 将来贈与を考慮するかどうか（t=0 は無視、それ以外は futurePlan を反映）
-        // ?? 修正：compute() は t=0 専用なので、将来贈与は常に無視
-        if (empty($futurePlan)) {
+        // 将来贈与を考慮するかどうか
+        // ★t=0 は常に futurePlan 無しとして扱う
+        if (!$useFuturePlan) {
             // t=0または贈与プランなし：過去贈与のみ評価（将来贈与は含めない）
             $virtual = [];
             $estateBase = $propertyNonCashYen + $cashGrown;
-            // ★未設定のときだけ計算（override 優先）
-            if ($giftIncl === null) {
-                
-                
-                /*
-                Log::debug("2026.01.27 1000000-6", [
-                    'deathDate' => $deathDate,
-                    't' => $t,
-                ]);
-                */
+
+
+            $giftIncl = $this->calcPastGiftsIncludedInEstateByRecipient(
+                $dataId,
+                $deathDate,
+                $payload,
+                $taxableAcquirerIdxList,
+                $heirs,
+                $t
+            );
+
             
-                $giftIncl = $this->calcPastGiftsIncludedInEstateByRecipient(
-                    $dataId,
-                    $deathDate,
-                    $payload,
-                    $taxableAcquirerIdxList,
-                    $heirs,
-                    $t
-                );
-            }
         } else {
             // t=1以降：将来贈与を含めた virtual シナリオを使用
             $giftBudgetYen = $this->giftBudgetYenForDecedent($propertyNonCashYen, $cashGrown);
@@ -5439,18 +5970,31 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
         $taxableEstateUsed = $isManualActive ? $manualTotalTaxableYen : $taxableEstate;
 
         // 法定分課税
-        $totalRatio = 0.0; 
+        // ★重要：
+        //   相続税総額（6-1相当）は [手入力]/[法定相続割合] を問わず、
+        //   税務上の法定相続割合（bunsi/bunbo）で計算する。
+        //   civilRatio() を使うと [手入力] の相続税額が壊れるため、
+        //   compute() 本体と同じロジックに揃える。
+        $totalTaxRatio = 0.0;
         foreach ($heirs as $h) {
-            $totalRatio += $this->civilRatio($h); // ★民法上の法定相続割合
-        } 
-        
-        $totalRatio = $totalRatio>0 ? $totalRatio : 1.0;
-        $legalShareRows = []; $totalLegalShareTax = 0;
+            $bunsi = (int)($h['bunsi'] ?? 0);
+            $bunbo = (int)($h['bunbo'] ?? 0);
+            if ($bunsi >= 1 && $bunbo >= 1) {
+                $totalTaxRatio += ($bunsi / $bunbo);
+            }
+        }
+
+        $totalTaxRatio = $totalTaxRatio > 0 ? $totalTaxRatio : 1.0;
+        $legalShareRows = [];
+        $totalLegalShareTax = 0;
 
         foreach ($heirs as $h) {
-            $legalRatio     = ($this->civilRatio($h)) / $totalRatio; // ★民法上の法定相続割合で按分
+            $bunsi = (int)($h['bunsi'] ?? 0);
+            $bunbo = (int)($h['bunbo'] ?? 0);
+            $taxRatio = ($bunsi >= 1 && $bunbo >= 1) ? ($bunsi / $bunbo) : 0.0;
+            $legalRatio = $taxRatio / $totalTaxRatio;
             $legalShareBase = (int)round($taxableEstateUsed * $legalRatio);
-            
+
             //  3) 対策後（after：t=0）の相続税総額の計算処理
             $legalTax       = $this->applyInheritanceTable($legalShareBase, $brackets);
             $totalLegalShareTax += $legalTax;
@@ -5520,15 +6064,58 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
 
         } else {
             // --------------------------------------------------
-            // auto：民法上の法定相続割合（civil）を唯一の基準とする
+            // auto：
+            //   compute() と同じく、まず画面で確定している split
+            //   （cash_share/other_share or id_cash_share/id_other_share）
+            //   を最優先で使う。
+            //   split が無い場合のみ civil 比率へフォールバックする。
             // --------------------------------------------------
-            $civilRatios = $this->normalizedCivilRatiosByIdx($payload, $heirs);
-
             $baseShareRatio = [];
+
+            $hasPayloadSplit = function(array $payload, int $idx): bool {
+                return
+                    (isset($payload['cash_share']) && array_key_exists($idx, (array)$payload['cash_share'])) ||
+                    (isset($payload['other_share']) && array_key_exists($idx, (array)$payload['other_share'])) ||
+                    (isset($payload['id_cash_share']) && array_key_exists($idx, (array)$payload['id_cash_share'])) ||
+                    (isset($payload['id_other_share']) && array_key_exists($idx, (array)$payload['id_other_share']));
+            };
+
+            $readSplitKyen = function(array $payload, string $primaryKey, string $fallbackKey, int $idx): int {
+                $v = $this->readKyen($payload, $primaryKey, $idx);
+                if ($v === 0) {
+                    $v = $this->readKyen($payload, $fallbackKey, $idx);
+                }
+                return (int)max(0, $v);
+            };
+
+            $sumBaseShare = 0;
+            $usedPayloadSplit = false;
+
             for ($idx = 2; $idx <= 10; $idx++) {
-                $baseShareRatio[$idx] = (float)($civilRatios[$idx] ?? 0.0);
-                $baseShareYenByIdx[$idx] =
-                    (int)floor($estateBaseForAlloc * $baseShareRatio[$idx]);
+                if ($hasPayloadSplit($payload, $idx)) {
+                    $cashK  = $readSplitKyen($payload, 'cash_share',  'id_cash_share',  $idx);
+                    $otherK = $readSplitKyen($payload, 'other_share', 'id_other_share', $idx);
+                    $yen = $this->toYen($cashK + $otherK);
+                    $baseShareYenByIdx[$idx] = $yen;
+                    $sumBaseShare += $yen;
+                    $usedPayloadSplit = true;
+                } else {
+                    $baseShareYenByIdx[$idx] = 0;
+                }
+            }
+
+            if ($usedPayloadSplit && $sumBaseShare > 0) {
+                for ($idx = 2; $idx <= 10; $idx++) {
+                    $baseShareRatio[$idx] = ($baseShareYenByIdx[$idx] ?? 0) / $sumBaseShare;
+                }
+            } else {
+                // split が無い場合のみ civil 比率へフォールバック
+                $civilRatios = $this->normalizedCivilRatiosByIdx($payload, $heirs);
+                for ($idx = 2; $idx <= 10; $idx++) {
+                    $baseShareRatio[$idx] = (float)($civilRatios[$idx] ?? 0.0);
+                    $baseShareYenByIdx[$idx] =
+                        (int)floor($estateBaseForAlloc * $baseShareRatio[$idx]);
+                }
             }
         }
 
@@ -5641,9 +6228,10 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
         $totalOtherCredits         = 0;
         $totalPayableAfterOthers   = 0;
         $totalSashihikiTax         = 0;
-        $totalSettlementGiftTaxes  = 0; // ★実際に控除できた精算贈与税（相続税の範囲内）
-        $totalFinalAfterSettlement = 0; // ★支払税額合計（負値は入れない）
-        $totalRefundTax            = 0; // ★還付合計（精算控除が相続税を上回った分）
+        $totalSettlementGiftTaxes   = 0; // ★実際に控除できた精算贈与税（相続税の範囲内）
+        $totalRawFinalAfterSettlement = 0; // ★No17 小計（マイナスあり）
+        $totalFinalAfterSettlement  = 0; // ★納付税額合計（マイナスは含めない）
+        $totalRefundTax             = 0; // ★還付合計（精算控除が相続税を上回った分）
         $breakdown = [];
 
         for ($idx = 2; $idx <= 10; $idx++) {
@@ -5665,6 +6253,25 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
             $finalTax  = $twoTenths ? (int)round($sanzutsu * 1.2) : $sanzutsu;
 
             $finalTotalAfterSurcharge += $finalTax;
+
+
+
+            /*
+            Log::debug('2026.03.23 10003 [ZouyotaxCalc][tax_flow_row][after]', [
+                'idx' => $idx,
+                'anbun_ratio' => $ratio,
+                'sanzutsu' => $sanzutsu,
+                'two_tenths' => $twoTenths,
+                'final_tax' => $finalTax,
+                'credit_calendar_yen' => (int)($giftTaxCredits[$idx]['calendar_yen'] ?? 0),
+                'spouse_relief_yen' => 0,
+                'other_credit_yen' => (int)$this->toYen($this->readKyen($payload, 'id_other_credit', $idx)),
+                'settlement_gift_tax_yen' => max(0, (int)($settlementGiftTaxes[$idx] ?? 0)),
+                'final_after_settlement_yen' => null,
+            ]);
+            */
+
+
 
             /*
             // ★ ログ：対策後(t=0)の算出税額・あん分割合
@@ -5727,16 +6334,38 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
 
             // 差引税額
             $sashihikiTax = $payAfterOthers; $totalSashihikiTax += $sashihikiTax;
-            $settlementGiftTaxYen = max(0, (int)($settlementGiftTaxes[$idx] ?? 0));
-            $appliedSetCredit     = min(max(0, $sashihikiTax), $settlementGiftTaxYen);
-            $finalAfterSettlement = $sashihikiTax - $appliedSetCredit; // ★必ず >=0
-            $refundYen            = max(0, $settlementGiftTaxYen - $appliedSetCredit);
 
-            $totalSettlementGiftTaxes  += $appliedSetCredit;
-            $totalFinalAfterSettlement += $finalAfterSettlement;
-            $totalRefundTax            += $refundYen;
+            $settlementGiftTaxYen   = max(0, (int)($settlementGiftTaxes[$idx] ?? 0));
+            $appliedSetCredit       = min(max(0, $sashihikiTax), $settlementGiftTaxYen);
+            $rawFinalAfterSettlement = $sashihikiTax - $settlementGiftTaxYen; // ★No17 小計そのもの
+            $finalAfterSettlement   = max(0, $rawFinalAfterSettlement);       // ★No18 納付税額
+            $refundYen              = $rawFinalAfterSettlement < 0 ? abs($rawFinalAfterSettlement) : 0; // ★No19 還付税額
 
-            
+            $totalSettlementGiftTaxes   += $appliedSetCredit;
+            $totalRawFinalAfterSettlement += $rawFinalAfterSettlement;
+            $totalFinalAfterSettlement  += $finalAfterSettlement;
+            $totalRefundTax             += $refundYen;
+
+
+
+            /*
+            Log::debug('2026.03.23 11003 [ZouyotaxCalc][tax_flow_row][after]', [
+                'idx' => $idx,
+                'anbun_ratio' => $ratio,
+                'sanzutsu' => $sanzutsu,
+                'two_tenths' => $twoTenths,
+                'final_tax' => $finalTax,
+                'credit_calendar_yen' => $creditCalendar,
+                'spouse_relief_yen' => $spouseRelief,
+                'other_credit_yen' => $otherCreditYen,
+                'settlement_gift_tax_yen' => $settlementGiftTaxYen,
+                'final_after_settlement_yen' => $finalAfterSettlement,
+            ]);
+            */
+
+
+
+
             /*
             Log::debug('2025.12.23 00003 ', [
                 'idx'        => $idx,
@@ -5784,17 +6413,46 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                 'payable_after_others_yen' => $payAfterOthers,
                 'sashihiki_tax_yen'  => $sashihikiTax,
                 'settlement_gift_tax_yen' => max(0, $settlementGiftTaxYen),
-                'final_after_settlement_yen' => $finalAfterSettlement,
+
+
+                'raw_final_after_settlement_yen' => $rawFinalAfterSettlement,
+                // ★PDF互換：No17 は No15-No16 の生値
+                'final_after_settlement_yen' => $rawFinalAfterSettlement,
+
+
                 'payable_tax_yen' => $finalAfterSettlement > 0 ? $finalAfterSettlement : 0,
-                'refund_tax_yen'  => $finalAfterSettlement < 0 ? abs($finalAfterSettlement) : 0,
+                'refund_tax_yen'  => $refundYen,
             ];
         }
         
+
+
+
+        /*
+        Log::debug('2026.03.23 10004 [ZouyotaxCalc][tax_flow_total][after]', [
+            'total_after_surcharge' => $finalTotalAfterSurcharge,
+            'total_gift_tax_credits' => $totalGiftTaxCredits,
+            'total_spouse_relief' => $totalSpouseRelief,
+            'total_other_credits' => $totalOtherCredits,
+            'total_settlement_gift_taxes' => $totalSettlementGiftTaxes,
+            'total_final_after_settlement' => $totalFinalAfterSettlement,
+        ]);
+        */
+
+ 
 
         //対策後
         return [
             'data_id' => $dataId,
             'summary' => [
+
+                // ★t=0 識別用
+                //   after / before と projections.after / projections.before を
+                //   log上で見分けやすくするため保持
+                't'               => $t,
+                'projection_year' => $t,
+                'scenario_context'=> 'after_t0',
+
                 // ★ 贈与前（比較用） / 贈与後（実際の贈与額控除後）を明確に分離
                 'estate_base_yen'  => $estateBefore,
                 'estate_after_yen' => $estateAfter,
@@ -5823,9 +6481,17 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                 'total_sashihiki_tax'           => $totalSashihikiTax,
                 'total_settlement_gift_taxes'   => $totalSettlementGiftTaxes,   // ★実際に控除できた分（合計）
                 'total_refund_tax_yen'          => $totalRefundTax,             // ★還付合計
-                'total_final_after_settlement'  => $totalFinalAfterSettlement,  // ★支払税額合計
-                // ★画面の「相続税」は“支払税額合計”を表示（還付は別表示）
-                'final_after_settlement_yen'    => $totalFinalAfterSettlement,
+
+
+                'total_raw_final_after_settlement' => $totalRawFinalAfterSettlement,
+                'total_final_after_settlement'  => $totalFinalAfterSettlement,  // ★No18 支払税額合計
+                // ★PDF互換：No17 合計は No15-No16 の生値
+                'final_after_settlement_yen'    => $totalRawFinalAfterSettlement,
+                // ★No18 合計を明示
+                'payable_tax_yen'               => $totalFinalAfterSettlement,
+
+
+
                 'anbun_mode'        => $anbunMode,
                 'anbun_total_kyen'  => $anbunTotalKyen,
                 
@@ -5872,7 +6538,7 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
         // resolveProjectionBaseDeathDate() を基準に年次ごとに確定済み。
         // ここで再計算すると JS と PHP の基準日がズレて
         // incl_calendar_yen のローリング判定が壊れるため、引数の $deathDateT をそのまま使う。
-        $dataId = (int)($payload['data_id'] ?? 1);
+        $dataId = (int)($payload['data_id'] ?? 0);
 
 
         /*
@@ -5893,6 +6559,15 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
         if ($giftTaxCredits === null) {
             $giftTaxCredits = $this->calcGiftTaxCreditsByRecipient($dataId, $deathDateT, $taxableAcquirerIdxList);
         }
+
+
+        // ★未定義防止
+        $giftIncl = null;
+ 
+        // ★重要：
+        //   t=0 の after は「これからの贈与」を一切考慮しない。
+        //   将来贈与データが存在していても、t=0 では必ず futurePlan 無しとして扱う。
+        $useFuturePlan = ($t > 0) && !empty($futurePlan);
 
 
         // ★仕様：被相続人(No=1)の金融資産は運用しない（増額しない）
@@ -6027,6 +6702,16 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
         $res['summary']['estate_after_yen']       = $estateAfter;                  // 合計
         $res['summary']['estate_after_cash_yen']  = (int)$parts['estate_after_cash_yen'];   // ★金融
         $res['summary']['estate_after_other_yen'] = (int)$parts['estate_after_other_yen'];  // ★その他
+        
+
+        // ★年次識別用
+        //   recomputeScenarioTaxesFromTaxableShares() の
+        //   if ($projectionYear === 1) を確実に通すために明示セット
+        //   （computeForGivenEstateAndDate() でも入れているが、ここで上書き保証しておく）
+        $res['summary']['t']               = $t;
+        $res['summary']['projection_year'] = $t;
+        $res['summary']['scenario_context']= 'after_projection';
+        
         return $res;
         
     }
@@ -6128,12 +6813,14 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                 if ($cashK === 0) {
                     $cashK = (int)($pfm->cash_thousand ?? 0);
 
+                    /*
                     //2026.01.13
                     Log::debug('2026.01.13 00001 :', [
                         'dataId'       => $dataId,
                         'rowNo'        => $rowNo,
                         '$cashK'       => $cashK,
                     ]);
+                    */
 
                 }
             }
@@ -6218,116 +6905,46 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
         //   - inherit_net_yen … 比率に基づく取得財産
         //   - inherit_tax_yen … 各行の final_after_settlement_yen（相続税額）そのもの
         // を返す
-$buildInheritForYear = function (?array $summary, ?array $heirsRows) use ($cashRatioByIdx, $otherRatioByIdx, $payload): array {
-    $out = [];
-    if (empty($summary) || empty($heirsRows)) {
-        return $out;
-    }
-
-    // --- 相続取得財産の按分比率（遺産分割比率）を決定（金融/その他の別比率） ---
-    $heirsByIdx = [];
-    foreach ($heirsRows as $row) {
-        if (!isset($row['row_index'])) {
-            continue;
-        }
-        $idx = (int)$row['row_index'];
-        if ($idx < 2 || $idx > 10) {
-            continue;
-        }
-        $heirsByIdx[$idx] = $row;
-    }
-
-    // 法定相続割合（民法上の相続割合）を取得
-    $civilRatios = $this->normalizedCivilRatiosByIdx($payload, $heirsRows);
-
-    // 必要な比率を取得
-    $splitRatios = $this->resolveEstateSplitRatiosFixed($payload, $heirsByIdx);
-    $cashRatioByIdx  = $splitRatios['cash']  ?? [];
-    $otherRatioByIdx = $splitRatios['other'] ?? [];
-
-    $cashTotal  = (int)($summary['estate_after_cash_yen']  ?? 0);
-    $otherTotal = (int)($summary['estate_after_other_yen'] ?? 0);
-    if (($cashTotal + $otherTotal) <= 0) {
-        return $out;
-    }
-
-    // まず比率に従って floor 配分（金融/その他別）
-    $allocatedCash  = 0;
-    $allocatedOther = 0;
-    // ★端数寄せ先：民法上の法定相続割合>0 の「最初の人」
-    $firstIdxCash   = null;
-    $firstIdxOther  = null;
-    // ★保険：もし全員が0なら従来通り最後の人に寄せる
-    $lastIdxCash    = null;
-    $lastIdxOther   = null;
-
-    foreach ($heirsRows as $row) {
-        $idx = (int)($row['row_index'] ?? 0);
-        $rCash  = (float)($cashRatioByIdx[$idx]  ?? 0.0);
-        $rOther = (float)($otherRatioByIdx[$idx] ?? 0.0);
-
-        // 各相続人の法定相続割合（民法上の相続割合）を取得
-        $lawOfInheritanceRatio = (float)($civilRatios[$idx] ?? 0.0); // civil_ratioを使う
-
-        // 金融資産に比率を適用
-        $shareCash = 0;
-        if ($cashTotal > 0) {
-            // ★端数寄せ候補（民法割合>0 の最初）
-            if ($firstIdxCash === null && $lawOfInheritanceRatio > 0) {
-                $firstIdxCash = $idx;
+        $buildInheritForYear = function (?array $summary, ?array $heirsRows): array {
+            $out = [];
+            if (empty($heirsRows)) {
+                return $out;
             }
-            $lastIdxCash = $idx; // フォールバック用
-            $shareCash = (int)floor($cashTotal * $lawOfInheritanceRatio); // 比率に基づく配分
-            $allocatedCash += $shareCash;
-        }
 
-        // その他資産に比率を適用
-        $shareOther = 0;
-        if ($otherTotal > 0) {
-            // ★端数寄せ候補（民法割合>0 の最初）
-            if ($firstIdxOther === null && $lawOfInheritanceRatio > 0) {
-                $firstIdxOther = $idx;
+            // ============================================================
+            // ★重要：
+            // inherit_net_yen はここで再配分してはいけない。
+            //
+            // after / projections.after の heirs には、すでに
+            //   estate_cash_share_yen
+            //   estate_other_share_yen
+            //   estate_base_share_yen
+            // が allocateEstateBaseByFixedRatios() により確定済みで入っている。
+            //
+            // したがって persons.timeline に渡す「相続による純財産増加額」は
+            // heirs[].estate_base_share_yen をそのまま使う。
+            // ここで civil ratio 等を用いて再計算すると、
+            // 画面本体の遺産分割結果と persons.timeline がズレる。
+            // ============================================================
+            foreach ($heirsRows as $row) {
+                $idx = (int)($row['row_index'] ?? 0);
+                if ($idx < 2 || $idx > 10) {
+                    continue;
+                }
+
+                $out[$idx] = [
+                    'inherit_net_yen' => (int)($row['estate_base_share_yen'] ?? 0),
+
+
+                    'inherit_tax_yen' => (int)($row['payable_tax_yen'] ?? $row['final_after_settlement_yen'] ?? 0),
+
+
+                ];
             }
-            $lastIdxOther = $idx; // フォールバック用
-            $shareOther = (int)floor($otherTotal * $lawOfInheritanceRatio); // 比率に基づく配分
-            $allocatedOther += $shareOther;
-        }
 
-        $share = $shareCash + $shareOther;
+            return $out;
+        };
 
-        $out[$idx] = [
-            'inherit_net_yen' => $share,
-            'inherit_tax_yen' => (int)($row['final_after_settlement_yen'] ?? 0),
-        ];
-
-        /*
-        //2025.12.26
-        Log::debug('2025.12.26 00001 :', [
-            'idx'                   => $idx,
-            'cashRatioByIdx'        => $cashRatioByIdx[$idx],
-            'otherRatioByIdx'       => $otherRatioByIdx[$idx],
-            'lawOfInheritanceRatio' => $lawOfInheritanceRatio,
-            'share'                 => $share,
-        ]);
-        */
-    }
-
-    // 端数は「民法上の法定相続割合>0 の最初の人」へ寄せる（金融/その他別）
-    // 金融資産
-    $targetCashIdx = $firstIdxCash ?? $lastIdxCash; // ★全員0なら従来通り最後へ（保険）
-    if ($targetCashIdx !== null && $allocatedCash !== $cashTotal) {
-        $diff = $cashTotal - $allocatedCash;
-        $out[$targetCashIdx]['inherit_net_yen'] = ($out[$targetCashIdx]['inherit_net_yen'] ?? 0) + $diff;
-    }
-    // その他資産
-    $targetOtherIdx = $firstIdxOther ?? $lastIdxOther; // ★全員0なら従来通り最後へ（保険）
-    if ($targetOtherIdx !== null && $allocatedOther !== $otherTotal) {
-        $diff = $otherTotal - $allocatedOther;
-        $out[$targetOtherIdx]['inherit_net_yen'] = ($out[$targetOtherIdx]['inherit_net_yen'] ?? 0) + $diff;
-    }
-
-    return $out;
-};
 
         // t=0（現時点）
         $inheritByYearIdx[0] = $buildInheritForYear(
@@ -6788,39 +7405,39 @@ $buildInheritForYear = function (?array $summary, ?array $heirsRows) use ($cashR
         // t=0 after.heirs から row_index => 行 へマップ
         $heirsByIdx = [];
         foreach ($after['heirs'] as $row) {
-            if (!isset($row['row_index'])) continue;
+            if (!isset($row['row_index'])) {
+                continue;
+            }
             $heirsByIdx[(int)$row['row_index']] = $row;
         }
         if (empty($heirsByIdx)) {
             return [$after, $projAfter];
         }
 
-        // --- 相続取得財産の按分比率（遺産分割比率）を決定 ---
+        // --- フォールバック比率 ---
         //   ・manual：heirs[].manual_price_yen の比率
         //   ・auto  ：heirs[].legal_ratio の比率
-        $sumPrice   = 0;
+        $sumPrice = 0;
         $priceByIdx = [];
         foreach ($heirsByIdx as $idx => $row) {
             $price = (int)($row['manual_price_yen'] ?? 0);
             if ($price > 0) {
                 $priceByIdx[$idx] = $price;
-                $sumPrice        += $price;
+                $sumPrice += $price;
             }
         }
 
         $fallbackRatioByIdx = [];
         if ($sumPrice > 0) {
-            // manual: 課税価格（manual_price_yen）の比率で按分
             foreach ($priceByIdx as $idx => $price) {
                 $fallbackRatioByIdx[$idx] = $price / $sumPrice;
             }
         } else {
-            // auto: legal_ratio の比率で按分
             $sumRatio = 0.0;
             foreach ($heirsByIdx as $idx => $row) {
                 $r = (float)($row['legal_ratio'] ?? 0.0);
                 $fallbackRatioByIdx[$idx] = $r;
-                $sumRatio                 += $r;
+                $sumRatio += $r;
             }
             if ($sumRatio > 0.0) {
                 foreach ($fallbackRatioByIdx as $idx => $r) {
@@ -6829,76 +7446,453 @@ $buildInheritForYear = function (?array $summary, ?array $heirsRows) use ($cashR
             }
         }
 
-        // per_idx（price_for_ratio）から比率を作るヘルパ
-        $buildRatiosFromPerIdx = function (?array $perIdx, array $fallback) {
-            $perIdx = $perIdx ?? [];
-            $sumP   = 0;
-            $ratio  = [];
-            foreach ($perIdx as $idx => $rec) {
-                $p = (int)($rec['price_for_ratio'] ?? 0);
-                if ($p <= 0) continue;
-                $ratio[(int)$idx] = $p;
-                $sumP            += $p;
+        // ★最終課税価格ベースの比率を作るヘルパ
+        //   優先：
+        //   1) heirs[].estate_base_share_yen + heirs[].past_gift_included_yen
+        //   2) per_idx[idx].price_for_ratio
+        //   3) fallback（manual_price_yen / legal_ratio）
+        $buildRatios = function (array $heirs, ?array $perIdx, array $fallback): array {
+            $ratio = [];
+            $sumP = 0;
+
+            // ① 最終確定値ベース
+            foreach ($heirs as $row) {
+                $idx = (int)($row['row_index'] ?? 0);
+                if ($idx < 2 || $idx > 10) {
+                    continue;
+                }
+
+                $estateBaseShareYen = (int)($row['estate_base_share_yen'] ?? 0);
+                $giftIncludedYen    = (int)($row['past_gift_included_yen'] ?? 0);
+                $p = max(0, $estateBaseShareYen + $giftIncludedYen);
+                if ($p <= 0) {
+                    continue;
+                }
+
+                $ratio[$idx] = $p;
+                $sumP += $p;
             }
+
             if ($sumP > 0) {
                 foreach ($ratio as $idx => $p) {
                     $ratio[$idx] = $p / $sumP;
                 }
                 return $ratio;
             }
-            // 全員0／未設定ならフォールバック（manual / legal_ratio）
+
+            // ② per_idx にフォールバック
+            $perIdx = $perIdx ?? [];
+            $ratio = [];
+            $sumP = 0;
+            foreach ($perIdx as $idx => $rec) {
+                $p = (int)($rec['price_for_ratio'] ?? 0);
+                if ($p <= 0) {
+                    continue;
+                }
+                $ratio[(int)$idx] = $p;
+                $sumP += $p;
+            }
+
+            if ($sumP > 0) {
+                foreach ($ratio as $idx => $p) {
+                    $ratio[$idx] = $p / $sumP;
+                }
+                return $ratio;
+            }
+
             return $fallback;
         };
 
-        // 内部ユーティリティ：指定された合計額を ratio で按分して taxable_share_yen を付与
+        // 指定された合計額を ratio で按分して taxable_share_yen を付与
         $applyAllocation = function (&$heirs, int $total, array $ratios): void {
-            if ($total <= 0 || !is_array($heirs)) return;
-            // ★端数寄せ先：比率>0の「最初の対象者」
-            $firstKey  = null;
-            $lastKey   = null; // ★保険
+            if ($total <= 0 || !is_array($heirs)) {
+                return;
+            }
+
+            $firstKey = null;
+            $lastKey  = null;
             $allocated = 0;
+
             foreach ($heirs as $k => &$row) {
                 $idx = $row['row_index'] ?? null;
-                if ($idx === null || !isset($ratios[$idx])) continue;
+                if ($idx === null || !isset($ratios[$idx])) {
+                    continue;
+                }
+
                 $r = (float)($ratios[$idx] ?? 0.0);
-                if ($r <= 0.0) continue;
-                if ($firstKey === null) { $firstKey = $k; }
+                if ($r <= 0.0) {
+                    continue;
+                }
+
+                if ($firstKey === null) {
+                    $firstKey = $k;
+                }
                 $lastKey = $k;
-                $share   = (int)floor($total * $r);
+
+                $share = (int)floor($total * $r);
                 $row['taxable_share_yen'] = $share;
-                $allocated               += $share;
+                $allocated += $share;
             }
-            // 端数は「最初の対象者」に寄せる（保険で last）
+            unset($row);
+
             $targetKey = $firstKey ?? $lastKey;
             if ($targetKey !== null) {
                 $heirs[$targetKey]['taxable_share_yen'] =
-                    ($heirs[$targetKey]['taxable_share_yen'] ?? 0) + ($total - $allocated);
+                    (int)($heirs[$targetKey]['taxable_share_yen'] ?? 0) + ($total - $allocated);
             }
         };
 
-        // 2) after(t=0)：per_idx(0年目の P_i(0)) から比率を作って按分
-        $perIdxAfter   = $after['per_idx'] ?? null;
-        $ratiosAfter   = $buildRatiosFromPerIdx($perIdxAfter, $fallbackRatioByIdx);
-        $totalAfter    = (int)($after['summary']['taxable_estate'] ?? 0);
+        // after(t=0)
+        $perIdxAfter = $after['per_idx'] ?? null;
+        $ratiosAfter = $buildRatios($after['heirs'], $perIdxAfter, $fallbackRatioByIdx);
+        $totalAfter  = (int)($after['summary']['taxable_estate'] ?? 0);
         $applyAllocation($after['heirs'], $totalAfter, $ratiosAfter);
 
-        // 3) 年次プロジェクション after[t]：各年の per_idx[t] があればそれで比率を作る
+        // 年次プロジェクション after[t]
         if (is_array($projAfter)) {
             foreach ($projAfter as $t => $row) {
                 if (!isset($row['summary']['taxable_estate'], $row['heirs']) || !is_array($row['heirs'])) {
                     continue;
                 }
-                $perIdxT   = $row['per_idx'] ?? null;
-                $ratiosT   = $buildRatiosFromPerIdx($perIdxT, $ratiosAfter); // 年ごとに P_i(t) 優先、無ければ t=0 比率
-                $totalT    = (int)$row['summary']['taxable_estate'];
-                $heirsT    =& $row['heirs'];
+
+                $perIdxT = $row['per_idx'] ?? null;
+                $ratiosT = $buildRatios($row['heirs'], $perIdxT, $ratiosAfter);
+                $totalT  = (int)($row['summary']['taxable_estate'] ?? 0);
+
+                $heirsT = $row['heirs'];
                 $applyAllocation($heirsT, $totalT, $ratiosT);
+                
+
+                if ((int)$t === 1) {
+                    $rowsForLog = [];
+                    foreach ($heirsT as $hr) {
+                        $idx = (int)($hr['row_index'] ?? 0);
+                        if ($idx < 2 || $idx > 10) {
+                            continue;
+                        }
+                        $rowsForLog[$idx] = [
+                            'row_index'               => $idx,
+                            'estate_base_share_yen'   => (int)($hr['estate_base_share_yen'] ?? 0),
+                            'past_gift_included_yen'  => (int)($hr['past_gift_included_yen'] ?? 0),
+                            'taxable_share_yen'       => (int)($hr['taxable_share_yen'] ?? 0),
+                            'anbun_ratio'             => (float)($hr['anbun_ratio'] ?? 0),
+                            'manual_price_yen'        => (int)($hr['manual_price_yen'] ?? 0),
+                            'legal_ratio'             => (float)($hr['legal_ratio'] ?? 0),
+                            'ratio_used'              => (float)($ratiosT[$idx] ?? 0.0),
+                            'per_idx_price_for_ratio' => (int)($perIdxT[$idx]['price_for_ratio'] ?? 0),
+                        ];
+                    }
+
+                    /*
+                    Log::debug('2026.03.23 30001 [ZouyotaxCalc][allocateTaxableEstateByFixedRatios][t=1]', [
+                        'summary' => [
+                            'taxable_estate' => $totalT,
+                        ],
+                        'rows' => $rowsForLog,
+                    ]);
+                    */
+                }
+
+
+                
                 $row['heirs'] = $heirsT;
                 $projAfter[$t] = $row;
             }
         }
 
         return [$after, $projAfter];
+    }
+
+
+
+
+
+    /**
+     * allocateTaxableEstateByFixedRatios() 後に確定した taxable_share_yen を唯一の正として、
+     * シナリオ（after / projections.after）の税額フローを再計算する。
+     *
+     * 対象:
+     * - sanzutsu_tax_yen
+     * - final_tax_yen
+     * - payable_after_calendar_credit_yen
+     * - spouse_relief_yen
+     * - payable_after_spouse_yen
+     * - other_credit_yen
+     * - payable_after_others_yen
+     * - sashihiki_tax_yen
+     * - final_after_settlement_yen
+     * - payable_tax_yen
+     * - refund_tax_yen
+     * - summary 配下の total_* 一式
+     */
+    private function recomputeScenarioTaxesFromTaxableShares(array $scenario, array $payload, int $dataId): array
+    {
+        if (!isset($scenario['summary'], $scenario['heirs']) || !is_array($scenario['summary']) || !is_array($scenario['heirs'])) {
+            return $scenario;
+        }
+
+        $summary = $scenario['summary'];
+        $heirs   = $scenario['heirs'];
+        $inputMode = strtolower((string)(Arr::get($payload, 'input_mode', 'auto') ?? 'auto'));
+        $isManualMode = ($inputMode === 'manual');
+ 
+        $taxableEstate     = max(0, (int)($summary['taxable_estate'] ?? 0));
+        $totalLegalShareTax = max(0, (int)($summary['sozoku_tax_total'] ?? 0));
+        $estateForSpouse   = max(0, (int)($summary['estate_after_yen'] ?? $summary['estate_yen'] ?? 0));
+
+        $projectionYear    = (int)($summary['projection_year'] ?? $summary['t'] ?? 0);
+
+        // ------------------------------------------------------------
+        // 1) 算出税額（sanzutsu）の再計算
+        //    - [手入力]       : 従来どおり taxable_share_yen / taxableEstate を使用
+        //    - [法定相続割合] : 既存の anbun_ratio をそのまま使用
+        // ------------------------------------------------------------        
+        $sanzutsuByIdx = [];
+        for ($i = 2; $i <= 10; $i++) {
+            $sanzutsuByIdx[$i] = 0;
+        }
+
+        if ($totalLegalShareTax > 0) {
+            if ($isManualMode) {
+                // [手入力] は既存仕様を維持
+                if ($taxableEstate > 0) {
+                    $allocated = 0;
+                    $firstIdx  = null;
+                    $lastIdx   = null;
+
+                    foreach ($heirs as $row) {
+                        $idx = (int)($row['row_index'] ?? 0);
+                        if ($idx < 2 || $idx > 10) {
+                            continue;
+                        }
+
+                        $taxableShareYen = max(0, (int)($row['taxable_share_yen'] ?? 0));
+                        if ($taxableShareYen <= 0) {
+                            continue;
+                        }
+
+                        if ($firstIdx === null) {
+                            $firstIdx = $idx;
+                        }
+                        $lastIdx = $idx;
+
+                        $shareTax = (int)floor($totalLegalShareTax * ($taxableShareYen / $taxableEstate));
+                        $sanzutsuByIdx[$idx] = $shareTax;
+                        $allocated += $shareTax;
+                    }
+
+                    $targetIdx = $firstIdx ?? $lastIdx;
+                    if ($targetIdx !== null) {
+                        $sanzutsuByIdx[$targetIdx] += ($totalLegalShareTax - $allocated);
+                    }
+                }
+            } else {
+                // [法定相続割合] でも、allocateTaxableEstateByFixedRatios() 後に確定した
+                // taxable_share_yen / taxableEstate を唯一の正として再配分する
+                if ($taxableEstate > 0) {
+                    $allocated = 0;
+                    $firstIdx  = null;
+                    $lastIdx   = null;
+
+                    foreach ($heirs as $row) {
+                        $idx = (int)($row['row_index'] ?? 0);
+                        if ($idx < 2 || $idx > 10) {
+                            continue;
+                        }
+
+                        $taxableShareYen = max(0, (int)($row['taxable_share_yen'] ?? 0));
+                        if ($taxableShareYen <= 0) {
+                            continue;
+                        }
+
+                        if ($firstIdx === null) {
+                            $firstIdx = $idx;
+                        }
+                        $lastIdx = $idx;
+
+                        $shareTax = (int)floor($totalLegalShareTax * ($taxableShareYen / $taxableEstate));
+                        $sanzutsuByIdx[$idx] = $shareTax;
+                        $allocated += $shareTax;
+
+                        if ($projectionYear === 1) {
+                            $existingAnbunRatio = (float)($row['anbun_ratio'] ?? 0.0);
+                            $recalculatedRatio  = (float)$taxableShareYen / (float)$taxableEstate;
+
+                            /*
+                            Log::debug('2026.03.23 20002 [ZouyotaxCalc][recompute_sanzutsu_check][after][t=1]', [
+                                'data_id' => $dataId,
+                                'idx' => $idx,
+                                'taxable_share_yen' => $taxableShareYen,
+                                'existing_anbun_ratio' => $existingAnbunRatio,
+                                'recalculated_ratio' => $recalculatedRatio,
+                                'sanzutsu_by_existing_ratio' => (int)round($totalLegalShareTax * $existingAnbunRatio),
+                                'sanzutsu_by_recalculated_ratio_round' => (int)round($totalLegalShareTax * $recalculatedRatio),
+                                'sanzutsu_by_recalculated_ratio_floor' => (int)floor($totalLegalShareTax * $recalculatedRatio),
+                            ]);
+                            */
+                        }
+                    }
+
+                    $targetIdx = $firstIdx ?? $lastIdx;
+                    if ($targetIdx !== null) {
+                        $sanzutsuByIdx[$targetIdx] += ($totalLegalShareTax - $allocated);
+                    }
+                }
+            }
+        }
+
+        
+        // ------------------------------------------------------------
+        // 2) 各人の税額フローを taxable_share_yen 基準で再計算
+        // ------------------------------------------------------------
+        $finalTotalAfterSurcharge  = 0;
+        $totalGiftTaxCredits       = 0;
+        $totalPayableAfterCredits  = 0;
+        $totalSpouseRelief         = 0;
+        $totalPayableAfterSpouse   = 0;
+        $totalOtherCredits         = 0;
+        $totalPayableAfterOthers   = 0;
+        $totalSashihikiTax         = 0;
+        $totalSettlementGiftTaxes   = 0;
+        $totalRawFinalAfterSettlement = 0;
+        $totalFinalAfterSettlement  = 0;
+        $totalRefundTax             = 0;
+
+
+        foreach ($heirs as $k => $row) {
+            $idx = (int)($row['row_index'] ?? 0);
+            if ($idx < 2 || $idx > 10) {
+                continue;
+            }
+
+            $taxableShareYen = max(0, (int)($row['taxable_share_yen'] ?? 0));
+            $anbunRatio = $isManualMode
+                ? (($taxableEstate > 0) ? ((float)$taxableShareYen / (float)$taxableEstate) : 0.0)
+                : (float)($row['anbun_ratio'] ?? 0.0);
+
+
+
+
+            $sanzutsu = (int)($sanzutsuByIdx[$idx] ?? 0);
+
+            $twoTenths = $this->checkboxOn($payload, 'twenty_percent_add', $idx);
+            $finalTax  = $twoTenths ? (int)round($sanzutsu * 1.2) : $sanzutsu;
+            $finalTotalAfterSurcharge += $finalTax;
+
+            $creditCalendar  = max(0, (int)($row['gift_tax_credit_calendar_yen'] ?? 0));
+            $payAfterCalCred = max(0, $finalTax - $creditCalendar);
+            $totalGiftTaxCredits      += min($finalTax, $creditCalendar);
+            $totalPayableAfterCredits += $payAfterCalCred;
+
+            $spouseRelief   = 0;
+            $payAfterSpouse = $payAfterCalCred;
+            $isSpouse       = (bool)($row['is_spouse'] ?? false);
+            $legalRatio     = (float)($row['legal_ratio'] ?? 0.0);
+
+            if ($isSpouse && $payAfterCalCred > 0) {
+                $actualShareYen = $this->resolveActualShareYenForIdx($payload, $idx, $estateForSpouse, $legalRatio);
+                $legalAmountYen = (int)round($estateForSpouse * $legalRatio);
+                $targetBaseYen  = min($actualShareYen, max($legalAmountYen, 160_000_000));
+                if ($actualShareYen > 0 && $targetBaseYen > 0) {
+                    $spouseRelief = (int)floor($payAfterCalCred * ($targetBaseYen / $actualShareYen));
+                    if ($spouseRelief > $payAfterCalCred) {
+                        $spouseRelief = $payAfterCalCred;
+                    }
+                    if ($spouseRelief < 0) {
+                        $spouseRelief = 0;
+                    }
+                    $payAfterSpouse = $payAfterCalCred - $spouseRelief;
+                }
+            }
+            $totalSpouseRelief       += $spouseRelief;
+            $totalPayableAfterSpouse += $payAfterSpouse;
+
+            $otherCreditYen = max(0, (int)($row['other_credit_yen'] ?? $this->toYen($this->readKyen($payload, 'id_other_credit', $idx))));
+            $payAfterOthers = max(0, $payAfterSpouse - $otherCreditYen);
+            $totalOtherCredits       += min($payAfterSpouse, $otherCreditYen);
+            $totalPayableAfterOthers += $payAfterOthers;
+
+            $sashihikiTax = $payAfterOthers;
+            $totalSashihikiTax += $sashihikiTax;
+
+            $settlementGiftTaxYen   = max(0, (int)($row['settlement_gift_tax_yen'] ?? 0));
+            $appliedSetCredit       = min(max(0, $sashihikiTax), $settlementGiftTaxYen);
+            $rawFinalAfterSettlement = $sashihikiTax - $settlementGiftTaxYen;
+            $finalAfterSettlement   = max(0, $rawFinalAfterSettlement);
+            $refundYen              = $rawFinalAfterSettlement < 0 ? abs($rawFinalAfterSettlement) : 0;
+
+            $totalSettlementGiftTaxes   += $appliedSetCredit;
+            $totalRawFinalAfterSettlement += $rawFinalAfterSettlement;
+            $totalFinalAfterSettlement  += $finalAfterSettlement;
+            $totalRefundTax             += $refundYen;
+
+
+            $heirs[$k]['anbun_ratio']                      = $anbunRatio;
+            $heirs[$k]['sanzutsu_tax_yen']                 = $sanzutsu;
+            $heirs[$k]['final_tax_yen']                    = $finalTax;
+            $heirs[$k]['two_tenths_added']                 = $twoTenths;
+            $heirs[$k]['gift_tax_credit_calendar_yen']     = $creditCalendar;
+            $heirs[$k]['payable_after_calendar_credit_yen']= $payAfterCalCred;
+            $heirs[$k]['spouse_relief_yen']                = $spouseRelief;
+            $heirs[$k]['payable_after_spouse_yen']         = $payAfterSpouse;
+            $heirs[$k]['other_credit_yen']                 = $otherCreditYen;
+            $heirs[$k]['payable_after_others_yen']         = $payAfterOthers;
+            $heirs[$k]['sashihiki_tax_yen']                = $sashihikiTax;
+            
+            $heirs[$k]['raw_final_after_settlement_yen']   = $rawFinalAfterSettlement;
+            // ★PDF互換：No17 は No15-No16 の生値
+            $heirs[$k]['final_after_settlement_yen']       = $rawFinalAfterSettlement;
+
+            $heirs[$k]['payable_tax_yen']                  = $finalAfterSettlement > 0 ? $finalAfterSettlement : 0;
+            $heirs[$k]['refund_tax_yen']                   = $refundYen;
+        }
+
+        $summary['total_after_surcharge']                  = $finalTotalAfterSurcharge;
+        $summary['total_gift_tax_credits']                 = $totalGiftTaxCredits;
+        $summary['total_payable_after_calendar_credits']   = $totalPayableAfterCredits;
+        $summary['total_spouse_relief']                    = $totalSpouseRelief;
+        $summary['total_payable_after_spouse']             = $totalPayableAfterSpouse;
+        $summary['total_other_credits']                    = $totalOtherCredits;
+        $summary['total_payable_after_others']             = $totalPayableAfterOthers;
+        $summary['total_sashihiki_tax']                    = $totalSashihikiTax;
+        $summary['total_settlement_gift_taxes']            = $totalSettlementGiftTaxes;
+        $summary['total_refund_tax_yen']                   = $totalRefundTax;
+
+
+        $summary['total_raw_final_after_settlement']       = $totalRawFinalAfterSettlement;
+        $summary['total_final_after_settlement']           = $totalFinalAfterSettlement;
+        // ★PDF互換：No17 合計は No15-No16 の生値
+        $summary['final_after_settlement_yen']             = $totalRawFinalAfterSettlement;
+        // ★No18 合計を明示
+        $summary['payable_tax_yen']                        = $totalFinalAfterSettlement;
+
+
+        if ($projectionYear === 1) {
+            $sumSanzutsu = 0;
+            foreach ($sanzutsuByIdx as $v) {
+                $sumSanzutsu += (int)$v;
+            }
+
+            /*
+            Log::debug('2026.03.23 20003 [ZouyotaxCalc][recompute_total_check][after][t=1]', [
+                'data_id' => $dataId,
+                'sum_sanzutsu' => $sumSanzutsu,
+                'total_legal_share_tax' => $totalLegalShareTax,
+                'total_after_surcharge' => $finalTotalAfterSurcharge,
+                'total_gift_tax_credits' => $totalGiftTaxCredits,
+                'total_other_credits' => $totalOtherCredits,
+                'total_settlement_gift_taxes' => $totalSettlementGiftTaxes,
+                'total_final_after_settlement' => $totalFinalAfterSettlement,
+            ]);
+            */
+        }
+
+        
+
+        $scenario['summary'] = $summary;
+        $scenario['heirs']   = $heirs;
+
+        return $scenario;
     }
 
 
@@ -6996,6 +7990,44 @@ $buildInheritForYear = function (?array $summary, ?array $heirsRows) use ($cashR
                         (int)($hr['estate_cash_share_yen'] ?? 0) + (int)($hr['estate_other_share_yen'] ?? 0);
                 }
                 unset($hr);
+                
+                
+
+                if ((int)$t === 1) {
+                    $rowsForLog = [];
+                    foreach ($row['heirs'] as $hr) {
+                        $idx = (int)($hr['row_index'] ?? 0);
+                        if ($idx < 2 || $idx > 10) {
+                            continue;
+                        }
+                        $rowsForLog[$idx] = [
+                            'row_index'             => $idx,
+                            'estate_cash_share_yen' => (int)($hr['estate_cash_share_yen'] ?? 0),
+                            'estate_other_share_yen'=> (int)($hr['estate_other_share_yen'] ?? 0),
+                            'estate_base_share_yen' => (int)($hr['estate_base_share_yen'] ?? 0),
+                            'cash_ratio_used'       => (float)($cashRatioByIdx[$idx] ?? 0.0),
+                            'other_ratio_used'      => (float)($otherRatioByIdx[$idx] ?? 0.0),
+                            'legal_ratio'           => (float)($hr['legal_ratio'] ?? 0.0),
+                        ];
+                    }
+
+                    /*
+                    Log::debug('2026.03.23 30002 [ZouyotaxCalc][allocateEstateBaseByFixedRatios][t=1]', [
+                        'summary' => [
+                            'estate_after_cash_yen'  => $cashT,
+                            'estate_after_other_yen' => $othT,
+                            'estate_after_yen'       => (int)($row['summary']['estate_after_yen'] ?? 0),
+                        ],
+                        'rows' => $rowsForLog,
+                    ]);
+                    */
+                    
+                }
+
+
+                
+                
+                
                 $projAfter[$t] = $row;
             }
         }
@@ -7005,14 +8037,80 @@ $buildInheritForYear = function (?array $summary, ?array $heirsRows) use ($cashR
 
 
     /**
+     * auto（遺産の分割方法＝法定相続割合）のとき、
+     * 「Step1 の分割財産がある人」を返す。
+     *
+     * 優先順位:
+     *  1. 画面/保存済み split 値（cash_share / other_share / id_cash_share / id_other_share）
+     *  2. civil_share_* から作る民法上の法定相続割合
+     *  3. 後方互換として heirs
+     *
+     * ※ manual 系の値（id_taxable_manu）はここでは絶対に使わない。
+     */
+    private function resolveEstateShareHolderIdxListForAuto(array $payload, array $heirs): array
+    {
+        $idxs = [];
+        $hasAnySplit = false;
+
+        for ($i = 2; $i <= 10; $i++) {
+            $cashK = max(
+                0,
+                $this->readKyen($payload, 'id_cash_share', $i),
+                $this->readKyen($payload, 'cash_share', $i)
+            );
+
+            $otherK = max(
+                0,
+                $this->readKyen($payload, 'id_other_share', $i),
+                $this->readKyen($payload, 'other_share', $i)
+            );
+
+            if ($cashK > 0 || $otherK > 0) {
+                $idxs[] = $i;
+                $hasAnySplit = true;
+            }
+        }
+
+        if ($hasAnySplit) {
+            $idxs = array_values(array_unique($idxs));
+            sort($idxs);
+            return $idxs;
+        }
+
+        $civilRatios = $this->normalizedCivilRatiosByIdx($payload, $heirs);
+        foreach ($civilRatios as $idx => $ratio) {
+            if ((int)$idx >= 2 && (int)$idx <= 10 && (float)$ratio > 0.0) {
+                $idxs[] = (int)$idx;
+            }
+        }
+
+        return $idxs;
+    }
+
+
+
+
+
+
+
+
+    /**
      * 「課税価格の取得がある人（相続/遺贈で財産を取得する人）」の idx(2..10) を決定する。
      *
      * 仕様：
-     * - auto  : 法定相続人（bunsi/bunbo がある行）のみ
-     * - manual: id_taxable_manu（手入力の課税価格）が >0 の行のみ
-     *          ※ manual で 1件も無い場合は互換性のため heirs にフォールバック
+     * - auto  :
+     *     Step1 の「民法上の法定相続割合による分割財産」がある人
+     *     （cash_share / other_share / id_cash_share / id_other_share / civil_share_* から判定）
+     * - manual:
+     *     id_taxable_manu（手入力の課税価格）が >0 の行のみ
+     *     ※ manual で 1件も無い場合は互換性のため heirs にフォールバック
      *
-     * ここで決まった idx のみが「生前贈与加算」「贈与税額控除」「精算課税贈与税控除」の対象となる。
+     * 注意：
+     * - これは Step2 の「暦年課税の生前贈与加算」対象者判定に使う。
+     * - Step3 の「精算課税による生前贈与加算」は、
+     *   Step1 の分割財産がない人も含めて全件算入するため、この判定では絞り込まない。
+     * - Step7 の「税法上の法定相続割合」とは別概念であり、
+     *   auto でも bunsi/bunbo の有無だけでは判定しない。
      *
      * @param array $payload
      * @param array $heirs collectHeirs() の結果
@@ -7038,14 +8136,101 @@ $buildInheritForYear = function (?array $summary, ?array $heirsRows) use ($cashR
                 }
             }
         } else {
-            foreach ($heirs as $h) {
-                $idx = (int)($h['idx'] ?? 0);
-            if ($idx >= 2 && $idx <= 10) $idxs[] = $idx;
+
+            // auto（法定相続割合）のときは、
+            // Step1 の分割財産がある人だけを対象にする。
+            // ※仕様上、manual 系入力値（id_taxable_manu）はここで見ない。
+            $idxs = $this->resolveEstateShareHolderIdxListForAuto($payload, $heirs);
+
+
+            // 念のための後方互換フォールバック：
+            // split も civil_share もまだ無いケースだけ heirs へ戻す
+            if (empty($idxs)) {
+                foreach ($heirs as $h) {
+                    $idx = (int)($h['idx'] ?? 0);
+                    if ($idx >= 2 && $idx <= 10) {
+                        $idxs[] = $idx;
+                    }
+                }
             }
+
+
         }
 
         $idxs = array_values(array_unique(array_filter($idxs, fn($v) => is_int($v) && $v >= 2 && $v <= 10)));
         sort($idxs);
+        
+
+ 
+        $civilRatiosDebug = [];
+        try {
+            $civilRatiosDebug = $this->normalizedCivilRatiosByIdx($payload, $heirs);
+        } catch (\Throwable $e) {
+            $civilRatiosDebug = ['error' => $e->getMessage()];
+        }
+        
+        
+
+        /*
+        Log::debug('2026.03.23 00006 [ZouyotaxCalc][taxable_acquirer_idx_list]', [
+            'input_mode' => $mode,
+            'heirs_idx' => array_values(array_map(
+                static fn($h) => (int)($h['idx'] ?? 0),
+                is_array($heirs) ? $heirs : []
+            )),
+            'taxable_idxs' => $idxs,
+            'id_taxable_manu' => [
+                2 => $this->readKyen($payload, 'id_taxable_manu', 2),
+                3 => $this->readKyen($payload, 'id_taxable_manu', 3),
+                4 => $this->readKyen($payload, 'id_taxable_manu', 4),
+                5 => $this->readKyen($payload, 'id_taxable_manu', 5),
+                6 => $this->readKyen($payload, 'id_taxable_manu', 6),
+                7 => $this->readKyen($payload, 'id_taxable_manu', 7),
+                8 => $this->readKyen($payload, 'id_taxable_manu', 8),
+                9 => $this->readKyen($payload, 'id_taxable_manu', 9),
+                10 => $this->readKyen($payload, 'id_taxable_manu', 10),
+            ],
+            'id_cash_share' => [
+                2 => $this->readKyen($payload, 'id_cash_share', 2),
+                3 => $this->readKyen($payload, 'id_cash_share', 3),
+                4 => $this->readKyen($payload, 'id_cash_share', 4),
+                5 => $this->readKyen($payload, 'id_cash_share', 5),
+                6 => $this->readKyen($payload, 'id_cash_share', 6),
+                7 => $this->readKyen($payload, 'id_cash_share', 7),
+                8 => $this->readKyen($payload, 'id_cash_share', 8),
+                9 => $this->readKyen($payload, 'id_cash_share', 9),
+                10 => $this->readKyen($payload, 'id_cash_share', 10),
+            ],
+            'id_other_share' => [
+                2 => $this->readKyen($payload, 'id_other_share', 2),
+                3 => $this->readKyen($payload, 'id_other_share', 3),
+                4 => $this->readKyen($payload, 'id_other_share', 4),
+                5 => $this->readKyen($payload, 'id_other_share', 5),
+                6 => $this->readKyen($payload, 'id_other_share', 6),
+                7 => $this->readKyen($payload, 'id_other_share', 7),
+                8 => $this->readKyen($payload, 'id_other_share', 8),
+                9 => $this->readKyen($payload, 'id_other_share', 9),
+                10 => $this->readKyen($payload, 'id_other_share', 10),
+            ],
+
+            'civil_share_bunsi' => [
+                2 => $this->readIntFromArray($payload, 'civil_share_bunsi', 2),
+                3 => $this->readIntFromArray($payload, 'civil_share_bunsi', 3),
+                4 => $this->readIntFromArray($payload, 'civil_share_bunsi', 4),
+                5 => $this->readIntFromArray($payload, 'civil_share_bunsi', 5),
+            ],
+            'civil_share_bunbo' => [
+                2 => $this->readIntFromArray($payload, 'civil_share_bunbo', 2),
+                3 => $this->readIntFromArray($payload, 'civil_share_bunbo', 3),
+                4 => $this->readIntFromArray($payload, 'civil_share_bunbo', 4),
+                5 => $this->readIntFromArray($payload, 'civil_share_bunbo', 5),
+            ],
+            'civil_ratios' => $civilRatiosDebug,
+
+         ]);
+         */
+
+
         return $idxs;
     }
 
@@ -7144,12 +8329,17 @@ $buildInheritForYear = function (?array $summary, ?array $heirsRows) use ($cashR
 
     /**
      * 遺産分割（t=0..20固定）の比率を作る（あなた仕様）
-     * - 法定相続割合：金融/その他とも legal_ratio（民法割合）
+     * - 法定相続割合：
+     *   ・金融/その他とも「民法上の法定相続割合（civil_share_*）」を最優先
+     *   ・civil が無い場合のみ後方互換で legal_ratio を使用
      * - 手入力：
      *   ・金融資産なし：その他は id_other_share の比率、金融は全員0
      *   ・金融資産あり：金融は id_cash_share、その他は id_other_share の比率
      *
-     * $heirsByIdx は after.heirs を row_index=>row にしたもの（legal_ratioが入っている想定）
+     * $heirsByIdx は after.heirs を row_index=>row にしたもの
+     *
+     * ★重要：
+     * [手入力] には影響を与えないよう、civil 比率を使うのは allocation_mode=legal のときだけ。
      */
     private function resolveEstateSplitRatiosFixed(array $payload, array $heirsByIdx): array
     {
@@ -7163,27 +8353,50 @@ $buildInheritForYear = function (?array $summary, ?array $heirsRows) use ($cashR
             $other[$no] = 0.0;
         }
 
-        // 1) 法定：legal_ratio を両方に採用（正規化）
+        // 1) 法定：民法上の法定相続割合（civil_share_*）を最優先で採用
         if ($mode === 'legal') {
+            // normalizedCivilRatiosByIdx() は heirs 配列を受けるため row_index=>row を配列へ戻す
+            $heirs = array_values($heirsByIdx);
+
+            // ★正：法定相続割合ケースでは civil_share_* を使う
+            $civilRatios = $this->normalizedCivilRatiosByIdx($payload, $heirs);
+
+            if (!empty($civilRatios)) {
+                for ($no = 2; $no <= 10; $no++) {
+                    $v = (float)($civilRatios[$no] ?? 0.0);
+                    $cash[$no] = $v;
+                    $other[$no] = $v;
+                }
+                return ['cash' => $cash, 'other' => $other];
+            }
+
+            // 後方互換：civil が作れない場合のみ legal_ratio を使用
             $sum = 0.0;
             for ($no = 2; $no <= 10; $no++) {
                 $r = (float)($heirsByIdx[$no]['legal_ratio'] ?? 0.0);
-                if ($r > 0) $sum += $r;
+                if ($r > 0) {
+                    $sum += $r;
+                }
             }
-            if ($sum <= 0.0) return ['cash'=>$cash,'other'=>$other];
+            if ($sum <= 0.0) {
+                return ['cash' => $cash, 'other' => $other];
+            }
             for ($no = 2; $no <= 10; $no++) {
                 $r = (float)($heirsByIdx[$no]['legal_ratio'] ?? 0.0);
                 $v = $r > 0 ? ($r / $sum) : 0.0;
                 $cash[$no] = $v;
                 $other[$no] = $v;
             }
-            return ['cash'=>$cash,'other'=>$other];
+            return ['cash' => $cash, 'other' => $other];
         }
 
         // 2) 手入力：入力値で比率化（0なら法定へフォールバック）
-        $readK = function(string $base, int $no) use ($payload): int {
+        // ★ここは従来どおり。civil 比率は使わない（[手入力]へ影響を与えない）
+        $readK = function (string $base, int $no) use ($payload): int {
             $raw = \Illuminate\Support\Arr::get($payload, "{$base}.{$no}", '');
-            if (!is_string($raw) && !is_numeric($raw)) return 0;
+            if (!is_string($raw) && !is_numeric($raw)) {
+                return 0;
+            }
             $normalized = preg_replace('/[^\d\-]/u', '', (string)$raw) ?? '0';
             return (int)$normalized;
         };
@@ -7228,9 +8441,8 @@ $buildInheritForYear = function (?array $summary, ?array $heirsRows) use ($cashR
             return $out;
         }
 
-        return ['cash'=>$cash,'other'=>$other];
+        return ['cash' => $cash, 'other' => $other];
     }
-
 
     /**
      * gift_year/month/day の欠損に強い日付生成（PastGift* の月日欠損で算入漏れしないため）
@@ -7330,8 +8542,13 @@ $buildInheritForYear = function (?array $summary, ?array $heirsRows) use ($cashR
         $val = 0;
         $candidates = [
             'settlement_tax20_thousand',
+            'settlement_tax20',
+            'set_tax20_thousand',
+            'set_tax20',            
             'settlement_tax_thousand',
             'settlement_tax_amount_thousand',
+            'set_tax_thousand',
+            'set_tax',            
             'tax_thousand',
         ];
         foreach ($candidates as $col) {
@@ -7344,7 +8561,7 @@ $buildInheritForYear = function (?array $summary, ?array $heirsRows) use ($cashR
             foreach ($attrs as $k => $v) {
                 if (!is_numeric($v)) continue;
                 $kk = (string)$k;
-                if (preg_match('/^settlement_.*tax.*_thousand$/i', $kk)) {
+                if (preg_match('/^(settlement|set)_.*tax.*(?:_thousand)?$/i', $kk)) {
                     $vv = (int)$v;
                     if ($vv > $val) { $val = $vv; }
                 }

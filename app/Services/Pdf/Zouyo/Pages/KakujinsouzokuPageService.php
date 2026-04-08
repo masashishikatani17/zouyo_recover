@@ -654,7 +654,7 @@ class KakujinsouzokuPageService implements ZouyoPdfPageInterface
 
                 // 氏名
                 $pdf->SetFont('mspgothic03', '', 11);
-                $pdf->MultiCell(30, 10, $no . (string)($heirNames[$no] ?? ''), $wakusen, 'C', 0, 0, $xx, $yy);
+                $pdf->MultiCell(30, 10, (string)($heirNames[$no] ?? ''), $wakusen, 'C', 0, 0, $xx, $yy);
 
                 // 続柄（文字数に応じて fontsize / 行間を調整）
                 $relLabel = (string)($heirRels[$no] ?? '');

@@ -214,6 +214,22 @@ class ZouyotaxCalc
 
         /** @var \App\Services\Zouyo\ZouyoGeneralRateResolver $resolver */
         $resolver = app(ZouyoGeneralRateResolver::class);
+        
+        
+        // ------------------------------------------------------------
+        // 単票マスター(id=1固定)対応:
+        // Resolver 側に新メソッドが実装されたら最優先でそれを使う。
+        // まだ未実装の環境では既存の年/version 前提ロジックへフォールバックする。
+        // ------------------------------------------------------------
+        if (method_exists($resolver, 'getBasicDeductionYenFromSingleMaster')) {
+            $this->giftBasicDeductionYenResolved = (int) $resolver->getBasicDeductionYenFromSingleMaster(
+                $this->resolveGiftMasterCompanyId($payload)
+            );
+
+            return $this->giftBasicDeductionYenResolved;
+        }
+
+
 
         $this->giftBasicDeductionYenResolved = $resolver->getBasicDeductionYen(
             $this->resolveGiftMasterCompanyId($payload),
@@ -222,6 +238,73 @@ class ZouyotaxCalc
 
         return $this->giftBasicDeductionYenResolved;
     }
+    
+
+    /**
+     * 単票マスター取得メソッドが存在する場合に、その戻り値を
+     * calcCalendarGiftTaxK() 用の税率表配列へ正規化する。
+     *
+     * 未実装・空配列のときは [] を返し、呼び出し側で既存の
+     * 年/version 前提ロジックへフォールバックする。
+     *
+     * @return array<int, array{lower:int, upper:?int, rate:float, quick:int}>
+     */
+    private function loadGiftRateRowsFromSingleMaster(bool $tokurei): array
+    {
+        $rows = [];
+
+        if ($tokurei) {
+            $service = app(ZouyoMasterService::class);
+
+            if (method_exists($service, 'getTokureiMasterRows')) {
+                $rows = $service->getTokureiMasterRows(null);
+            }
+        } else {
+            /** @var \App\Services\Zouyo\ZouyoGeneralRateResolver $resolver */
+            $resolver = app(ZouyoGeneralRateResolver::class);
+
+            if (method_exists($resolver, 'getRowsFromSingleMaster')) {
+                $rows = $resolver->getRowsFromSingleMaster(null);
+            }
+        }
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        return $this->normalizeGiftRateRows($rows);
+    }
+
+    /**
+     * Eloquent\Collection / array のどちらでも受け取り、
+     * 税率表配列へ正規化する。
+     *
+     * @param  iterable<int, mixed>  $rows
+     * @return array<int, array{lower:int, upper:?int, rate:float, quick:int}>
+     */
+    private function normalizeGiftRateRows(iterable $rows): array
+    {
+        $out = [];
+
+        foreach ($rows as $r) {
+            $rate = (float) data_get($r, 'rate', 0.0);
+            if ($rate > 1.0) {
+                $rate = $rate / 100.0;
+            }
+
+            $upper = data_get($r, 'upper');
+
+            $out[] = [
+                'lower' => (int) data_get($r, 'lower', 0),
+                'upper' => $upper === null ? null : (int) $upper,
+                'rate'  => $rate,
+                'quick' => (int) data_get($r, 'deduction_amount', data_get($r, 'quick', 0)),
+            ];
+        }
+
+        return $out;
+    }    
+
 
     private function resolveGiftBasicDeductionK(array $payload = []): int
     {
@@ -271,6 +354,25 @@ class ZouyotaxCalc
      */
     private function loadGiftRateRows(bool $tokurei): array
     {
+
+
+        // ------------------------------------------------------------
+        // 単票マスター(id=1固定)対応:
+        // Service / Resolver 側に単票取得メソッドが入っていれば最優先。
+        // 未実装なら既存の year/version 取得へフォールバックする。
+        // ------------------------------------------------------------
+        $singleMasterCacheKey = $tokurei ? 'tokurei:single_master' : 'general:single_master';
+        if (isset($this->giftRateRowsCache[$singleMasterCacheKey])) {
+            return $this->giftRateRowsCache[$singleMasterCacheKey];
+        }
+
+        $singleMasterRows = $this->loadGiftRateRowsFromSingleMaster($tokurei);
+        if (!empty($singleMasterRows)) {
+            $this->giftRateRowsCache[$singleMasterCacheKey] = $singleMasterRows;
+            return $singleMasterRows;
+        }
+
+
         $year = $this->resolveGiftRateYear($tokurei);
         $ckey = ($tokurei ? 'tokurei:' : 'general:') . $year;
         if (isset($this->giftRateRowsCache[$ckey])) {
@@ -2776,6 +2878,9 @@ class ZouyotaxCalc
         //     3年以内→3年超へ移動した贈与に控除が掛かり、
         //     before_proj の相続税が t>=1 で不自然に減る。
         $useOneMillionExemption = ($deathDate >= new \DateTimeImmutable('2027-01-02'));
+        
+        $giftBasicDeductionK = $this->resolveGiftBasicDeductionK($payload);
+        
 
         // 暦年：受贈者×年ごとに「3年以内」と「3年超」の金額を別管理する（単位：千円）
         $perCalWithin3K = []; // [recipient_no][gift_year] => int
@@ -2900,9 +3005,9 @@ for ($no = 2; $no <= 10; $no++) {
 
             $year = (int)($r->gift_year ?? 0);
             
-            // amount_thousand は「千円」単位なので、控除は 1100（=110万円）で行う
+            // amount_thousand は「千円」単位なので、控除は一般税率マスターの基礎控除額で行う
             if ($year >= 2024) {
-                $amtK = max(0, (int)($r->amount_thousand ?? 0) - 1100);
+                $amtK = max(0, (int)($r->amount_thousand ?? 0) - $giftBasicDeductionK);                
             } else {
                 $amtK = max(0, (int)($r->amount_thousand ?? 0));
             }
@@ -5204,6 +5309,7 @@ for ($i = 0; $i <= $t; $i++) {
 
         // ★ 初期化（この2キーだけ固定）
         $out = ['calendar' => [], 'settlement' => []];
+        $giftBasicDeductionK = $this->resolveGiftBasicDeductionK($payload);        
 
         // ------------------------------------------------------------
         // ① 将来贈与は payload ではなく DB の future_gift_plan_entries を唯一の正として扱う
@@ -5234,8 +5340,10 @@ for ($i = 0; $i <= $t; $i++) {
                 if ($calTaxK <= 0) {
                     $amtK = (int)($r->calendar_amount_thousand ?? 0);
                     if ($amtK > 0) {
-                        // JSと同様：afterK = max(amountK - 1100, 0)
-                        $afterK = max($amtK - 1100, 0);
+
+                        // JSと同様：afterK = max(amountK - 基礎控除額, 0)
+                        $afterK = max($amtK - $giftBasicDeductionK, 0);
+
                         $isTok  = $this->isTokureiRecipient($dataId, (int)$r->recipient_no);
                         $calTaxK = $this->calcCalendarGiftTaxK($afterK, $isTok);
                     }
@@ -5377,6 +5485,7 @@ for ($i = 0; $i <= $t; $i++) {
         // ★No=1原資の残高（これが尽きたら、それ以降の将来贈与は「未実行」扱い）
         $remainingBudgetYen = max(0, $giftBudgetYen);
 
+        $giftBasicDeductionYen = $this->resolveGiftBasicDeductionYen();
         
         [$start, $end, $kasan_case] = $this->determineCalendarGiftLookbackRange($deathDateT);
 
@@ -5716,7 +5825,7 @@ for ($i = 0; $i <= $t; $i++) {
                // 2024年以降の場合は1100000円を控除
                $giftYear = (int)substr($deathDateT->format('Y'), 0, 4);  // 贈与年を取得
                if ($giftYear >= 2024) {
-                   $yenKasan = max(0, $yen - 1100000);  // 控除後の金額
+                   $yenKasan = max(0, $yen - $giftBasicDeductionYen);  // 控除後の金額                   
                    //log::DEBUG('2025.12.10 50003 giftYear = '.$giftYear,['yen',$yenKasan]);
                }
             

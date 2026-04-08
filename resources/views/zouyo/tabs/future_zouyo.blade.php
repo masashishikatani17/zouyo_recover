@@ -323,6 +323,12 @@
 @endphp
 
 
+@php
+    $giftBasicDeductionYear = (int) old('future_base_year', $prefillFuture['header']['year'] ?? 2026);
+    $giftBasicDeductionYen = app(\App\Services\Zouyo\ZouyoGeneralRateResolver::class)
+        ->getBasicDeductionYen(auth()->user()?->company_id, $giftBasicDeductionYear);
+    $giftBasicDeductionK = (int) round($giftBasicDeductionYen / 1000);
+@endphp
 
   {{-- JS用 back-up。基本は form[data-data-id] / APP_DATA_ID を使用 --}}
   <input type="hidden" name="data_id" value="{{ $data->id ?? request('data_id') }}" readonly>
@@ -515,7 +521,7 @@
           <th id="cal-tax-header">(一般税率)<br>贈与税額</th>          
           <th>贈与加算<br>累計額</th>
           <th class="future-edit-col-header">贈与額</th>
-          <th>110万円<br>基礎控除</th>
+          <th>{{ number_format($giftBasicDeductionK) }}千円<br>基礎控除</th>          
           <th>基礎控除後</th>
           <th>2500万円<br>特別控除後</th>
           <th>20%の<br>贈与税額</th>
@@ -535,7 +541,7 @@
             $i = 0;
             $zoyoTotal = $prefillFuture['rekinen']['total']['zoyo'] ?? 0;
             $kojoTotal = $prefillFuture['rekinen']['total']['kojo'] ?? 0;
-            $basicK = 1100 * count(array_filter($prefillFuture['rekinen']['year'] ?? [])); // 贈与年数
+            $basicK = $giftBasicDeductionK * count(array_filter($prefillFuture['rekinen']['year'] ?? [])); // 贈与年数            
             $afterBasic = max($zoyoTotal - $basicK, 0);
           ?>
           
@@ -787,7 +793,7 @@ window.GIFT_RATES = {
   tokurei: @json($tokureiRates, JSON_UNESCAPED_UNICODE),
   general: @json($generalRates, JSON_UNESCAPED_UNICODE)
 };
-
+window.GIFT_BASIC_DEDUCTION_K = @json($giftBasicDeductionK);
 
       /** ---------- 共通ユーティリティ ---------- */
       const KYEN = 1000; // 千円→円
@@ -1021,7 +1027,8 @@ const calcRekinenCumK = (rekinen, deathDate) => {
           toggleCalTaxHeader(isTokurei);
       
           const rows = getCalRows();
-          const BASIC_K = 1100;  // 基礎控除額（110万円）
+          const BASIC_K = Number(window.GIFT_BASIC_DEDUCTION_K || 1100);  // 基礎控除額（マスター由来・千円）
+          
       
           const giftMonth = toInt(document.querySelector('input[name="future_base_month"]')?.value, 12);
           const giftDay = toInt(document.querySelector('input[name="future_base_day"]')?.value, 31);
@@ -1150,7 +1157,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
 
       /** ---------- 精算課税（110万/2,500万/20%／加算累計は「基礎控除後」） ---------- */
       const recalcSettlementAllRows = () => {
-        const BASIC_1100 = 1100;
+        const BASIC_1100 = Number(window.GIFT_BASIC_DEDUCTION_K || 1100);
         let remain25m = 25000;
         const rows = getSetRows();
 

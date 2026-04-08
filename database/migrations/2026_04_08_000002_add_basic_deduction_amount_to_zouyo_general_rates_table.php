@@ -9,7 +9,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-    if (! Schema::hasTable('zouyo_general_rates')) {
+        if (! Schema::hasTable('zouyo_general_rates')) {
             return;
         }
 
@@ -24,7 +24,9 @@ return new class extends Migration
 
         DB::table('zouyo_general_rates')
             ->whereNull('basic_deduction_amount')
-            ->update(['basic_deduction_amount' => 1100000]);
+            ->update([
+                'basic_deduction_amount' => 1100000,
+            ]);
     }
 
     public function down(): void

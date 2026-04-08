@@ -622,17 +622,8 @@ Log::debug('PDF selected pages in makeInputContext', [
         ]);
         */
 
-            // --- テスト用 ---
-            $user = new \App\Models\User([
-                'id' => 1,
-                'name' => 'aaaaaa',
-                'company_id' => 1,
-                'group_id' => 1,
-                'role' => 'owner',
-            ]);
-            Auth::setUser($user); // ← これで request()->user() に反映
-            // ------------------------------------------------------
 
+        // ------------------------------------------------------
         // 親ファースト：必ず親 Data を認可付きで確定
         //$data = $this->resolveAuthorizedDataOrFail($request, 'update');
 
@@ -2117,13 +2108,21 @@ if ($i == 1){
             $companyId = (int)(Data::query()->where('id', $dataId)->value('company_id') ?? 0);
         }
 
+        /** @var \App\Services\Zouyo\ZouyoGeneralRateResolver $resolver */
+        $resolver = app(ZouyoGeneralRateResolver::class);
+
+        // 新実装が入ったら単票マスター(id=1固定)を優先
+        if (method_exists($resolver, 'getBasicDeductionYenFromSingleMaster')) {
+            return (int) $resolver->getBasicDeductionYenFromSingleMaster(
+                $companyId > 0 ? $companyId : null
+            );
+        }
+
+        // 互換: 既存の年指定Resolverが残っている間は旧実装へフォールバック
         $preferredYear = (int)($request->input('future_base_year') ?? $request->input('header_year') ?? self::MASTER_KIHU_YEAR);
         if ($preferredYear <= 0) {
             $preferredYear = self::MASTER_KIHU_YEAR;
         }
-
-        /** @var \App\Services\Zouyo\ZouyoGeneralRateResolver $resolver */
-        $resolver = app(ZouyoGeneralRateResolver::class);
 
         return $resolver->getBasicDeductionYen(
             $companyId > 0 ? $companyId : null,
@@ -2349,26 +2348,10 @@ if ($i == 1){
     
     public function fetchFuture(Request $request)
     {
-        $recipientNo = $request->input('future_recipient_no');
-        $dataId = $request->input('data_id');
-    
-        // 受贈者に関するデータ取得処理...
-    
-        return response()->json([
-            'status' => 'ok',
-            'data_id' => $data->id,
-            'recipient_no' => $recipientNo,
-            'header' => ['year'=>null,'month'=>null,'day'=>null],
-            'plan' => [
-                'gift_year'=>$makeArr(20),'age'=>$makeArr(20),
-                'cal_amount'=>$makeArr(20),'cal_basic'=>$makeArr(20),
-                'cal_after_basic'=>$makeArr(20),'cal_tax'=>$makeArr(20),
-                'cal_cum'=>$makeArr(20),
-                'set_amount'=>$makeArr(20),'set_basic110'=>$makeArr(20),
-                'set_after_basic'=>$makeArr(20),'set_after_25m'=>$makeArr(20),
-                'set_tax20'=>$makeArr(20),'set_cum'=>$makeArr(20),
-            ],
-        ]);
+
+        // 既存の本実装 fetchFutureGifts() に統一
+        return $this->fetchFutureGifts($request);
+
     }
     
 
@@ -2723,7 +2706,7 @@ if ($i == 1){
         
         return view('zouyo.master.shotoku_master', [
             'dataId' => $data->id,
-            'rates' => $masterService->getShotokuRates(self::MASTER_KIHU_YEAR, $companyId),
+            'rates' => $this->getShotokuMasterRates($masterService, $companyId),            
         ]);
     }
 
@@ -2734,7 +2717,7 @@ if ($i == 1){
         
         return view('zouyo.master.jumin_master', [
             'dataId' => $data->id,
-            'rates' => $masterService->getJuminRates(self::MASTER_KIHU_YEAR, $companyId),
+            'rates' => $this->getJuminMasterRates($masterService, $companyId),            
         ]);
     }
 
@@ -2745,7 +2728,7 @@ if ($i == 1){
         
         return view('zouyo.master.tokurei_master', [
             'dataId' => $data->id,
-            'rates' => $masterService->getTokureiRates(self::MASTER_KIHU_YEAR, $companyId),
+            'rates' => $this->getTokureiMasterRates($masterService, $companyId),            
         ]);
     }
 
@@ -2756,9 +2739,52 @@ if ($i == 1){
         
         return view('zouyo.master.shinkokutokurei_master', [
             'dataId' => $data->id,
-            'rates' => $masterService->getShinkokutokureiRates(self::MASTER_KIHU_YEAR, $companyId),
+            'rates' => $this->getShinkokutokureiMasterRates($masterService, $companyId),            
         ]);
     }
+
+
+
+    /**
+     * 単票マスター(id=1固定)対応の新メソッドが Service 側に実装されたらそれを優先。
+     * 未実装の間は既存の年指定メソッドへフォールバックする。
+     */
+    private function getShotokuMasterRates(ZouyoMasterService $masterService, ?int $companyId): array
+    {
+        if (method_exists($masterService, 'getShotokuMasterRows')) {
+            return (array) $masterService->getShotokuMasterRows($companyId);
+        }
+
+        return (array) $masterService->getShotokuRates(self::MASTER_KIHU_YEAR, $companyId);
+    }
+
+    private function getJuminMasterRates(ZouyoMasterService $masterService, ?int $companyId): array
+    {
+        if (method_exists($masterService, 'getJuminMasterRows')) {
+            return (array) $masterService->getJuminMasterRows($companyId);
+        }
+
+        return (array) $masterService->getJuminRates(self::MASTER_KIHU_YEAR, $companyId);
+    }
+
+    private function getTokureiMasterRates(ZouyoMasterService $masterService, ?int $companyId): array
+    {
+        if (method_exists($masterService, 'getTokureiMasterRows')) {
+            return (array) $masterService->getTokureiMasterRows($companyId);
+        }
+
+        return (array) $masterService->getTokureiRates(self::MASTER_KIHU_YEAR, $companyId);
+    }
+
+    private function getShinkokutokureiMasterRates(ZouyoMasterService $masterService, ?int $companyId): array
+    {
+        if (method_exists($masterService, 'getShinkokutokureiMasterRows')) {
+            return (array) $masterService->getShinkokutokureiMasterRows($companyId);
+        }
+
+        return (array) $masterService->getShinkokutokureiRates(self::MASTER_KIHU_YEAR, $companyId);
+    }
+
 
     private function getFurusatoInputPayload(Data $data): array
     {
@@ -3337,16 +3363,28 @@ if ($i == 1){
      */
     public function fetch(Request $request)
     {
-        $recipientNo = $request->input('recipient_no');
-        
-        // 受贈者に関連する過年度の贈与額を取得
-        $pastGiftAmount = $this->getPastGiftAmountForRecipient($recipientNo);
 
-        // 過年度の贈与額と計算した贈与加算累計額をJSONで返す
+
+        $data = $this->resolveAuthorizedDataOrFail($request, 'view');
+        $recipientNo = (int) $request->input('recipient_no', 0);
+        abort_unless($recipientNo > 0, 422, 'recipient_no is required');
+
+        $giftAmount = (int) PastGiftCalendarEntry::query()
+            ->where('data_id', $data->id)
+            ->where('recipient_no', $recipientNo)
+            ->sum('amount_thousand');
+
+        $accumulatedAmount = (int) PastGiftSettlementEntry::query()
+            ->where('data_id', $data->id)
+            ->where('recipient_no', $recipientNo)
+            ->sum('amount_thousand');
+
         return response()->json([
-            'giftAmount' => $pastGiftAmount,
-            'accumulatedAmount' => $this->calculateAccumulatedAmount($recipientNo)  // 贈与加算累計額を返す
+            'giftAmount' => $giftAmount,
+            'accumulatedAmount' => $accumulatedAmount,
         ]);
+
+
     }
 
 
@@ -3354,47 +3392,11 @@ if ($i == 1){
 
     public function fetchPastData(Request $request)
     {
-        $dataId = $request->input('data_id');
-        $recipientNo = $request->input('recipient_no');
-    
-        // データを取得
-        $data = SomeModel::where('data_id', $dataId)
-                         ->where('recipient_no', $recipientNo)
-                         ->first();
-    
-        if (!$data) {
-            return response()->json(['status' => 'error', 'message' => 'データが見つかりません']);
-        }
-    
-        return response()->json(['status' => 'ok', 'data' => $data]);
-    }
 
-    /**
-     * 受贈者に対する過年度の贈与額を取得する
-     * @param int $recipientNo 受贈者の番号
-     * @return int 過年度の贈与額
-     */
-    private function getPastGiftAmountForRecipient($recipientNo)
-    {
-        // 実際の過年度の贈与額はDBなどから取得する
-        // 以下は例として受贈者番号が2の場合に500,000円を返す
-        return 500000;  // 仮のデータとして500,000円を返す
-    }
+        // 既存の本実装 pastFetch() に統一
+        $request->query->set('recipient_no', (int) $request->input('recipient_no', 0));
+        return $this->pastFetch($request);
 
-    /**
-     * 受贈者に対する贈与加算累計額を計算する
-     * 2025年から2031年までの贈与加算累計額を計算する
-     * @param int $recipientNo 受贈者の番号
-     * @return int 贈与加算累計額
-     */
-    private function calculateAccumulatedAmount($recipientNo)
-    {
-        // 2025年から2031年までの贈与加算累計額のロジックを実装
-        $startYear = 2025;
-        $endYear = 2031;
-        
-        // 仮の累計額を返す（実際には過年度の贈与額を集計する）
-        return 500000;  // 仮の累計額
     }
 
 
