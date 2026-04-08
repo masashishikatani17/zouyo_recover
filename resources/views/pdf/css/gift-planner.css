@@ -1,0 +1,711 @@
+
+/*!
++ * Gift Planner Base CSS (with Dreamweaver fallback)
++ * File: dw/css/gift-planner.css
++ * Updated: 2025-10-02
++ *
+
+ /* =========================
+    1) ベース・リセット
+    ========================= */
+	 html {
+	  /* Dreamweaver（Design View）等の古い描画エンジン対策は後続のフォールバックで対応 */
+	   -webkit-text-size-adjust: 100%;
+	   print-color-adjust: exact;
+	   -webkit-print-color-adjust: exact;
+	 }
+	 *, *::before, *::after {
+	   box-sizing: border-box;
+	 }
+
+	 body {
+	   margin: 0;
+	   background: #fff;
+	   color: #000;
+	   font-family:
+	   	 "mspmincho02",
+		 "Yu Gothic", "Meiryo",
+		 "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+		 "Noto Sans", Arial, Helvetica, sans-serif;   
+	   word-break: break-word;
+	 }
+
+ /* -------------------------
+    1-1) カスタムプロパティ（画面用）
+    ※ @page では使用不可
+    ------------------------- */
+	 :root {
+	   --page-width: 297mm;
+	   --page-height: 210mm;
+	   --page-margin-top: 8mm;
+	   --page-margin-right: 15mm;
+	   --page-margin-bottom: 5mm;
+	   --page-margin-left: 15mm;
+
+	   --color-fg: #000;
+	   --color-muted: #000;
+	   --color-border: #999;
+	   --color-border-strong: #333;
+	   --color-head-bg: #f5f5f5;
+
+	   --table-cell-py: 6px;
+	   --table-cell-px: 8px;
+	   --table-border: 1px solid var(--color-border);
+	   --table-border-strong: 2px solid var(--color-border-strong);
+	 }
+ 
+ /* =========================
+    2) ページ（1シート＝1ページ）
+    ========================= */
+	 /* 画面用のデフォルトは横向きサイズ（A4横相当） */
+	 /* @page は印刷時のみ効くため、実際の印刷向け指定は下の @media print 内で上書きします */
+	 @page {
+	   /* A4横／上下(上8mm/下8mm)・左右15mm */
+	   size: A4 landscape;
+	   margin: 8mm 15mm 5mm 15mm;
+	 }
+
+
+
+      /* 印刷時は .sheet の外側余白／内側余白／影を無効化して @page のみに統一 */
+      .sheet {
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        width: auto !important;
+        min-height: auto !important;
+        background: #fff !important;
+      }
+
+	 .sheet {
+	   /* 画面プレビューでA4相当のキャンバスを再現 */
+
+	   width: 297mm;                              /* fallback（横） */
+	   width: var(--page-width, 297mm);
+	   min-height: 210mm;                         /* fallback（横） */
+	   min-height: var(--page-height, 210mm);
+	   margin: 8mm auto;
+	   background: #fff;
+	   box-shadow:
+		 0 0 0.5mm rgba(0,0,0,0.10),
+		 0 2mm 6mm rgba(0,0,0,0.08);
+	   /* 画面での紙面余白（印刷では @page に切替） */
+
+	  padding: 8mm 15mm 8mm 15mm;              /* fallback */
+	  padding: var(--page-margin-top, 8mm) var(--page-margin-right, 15mm)
+			   var(--page-margin-bottom, 8mm) var(--page-margin-left, 15mm);
+	   position: relative;
+	 }
+
+	 /* ページ下部のページ表記（(◯ページ) など） */
+	 .page-label {
+	   position: absolute;
+	  right: 17mm;  /* 17mm - 1mm の固定値フォールバック */
+	  right: calc(var(--page-margin-right, 15mm) - 1mm);
+	  bottom: 2mm; /* 18mm - 2mm の固定値フォールバック */
+	  bottom: var(--page-margin-bottom, 15mm);
+	  font-size: 9pt;
+	  color: #888;                          /* fallback */
+	  color: var(--color-muted, #666);
+	 }
+
+	 @media print {
+	   /* 印刷時は“ページに対して”固定。横向きタイトの余白に合わせる */
+		  /* A4横を強制（ブラウザの既定や別CSSの干渉を回避） */
+		  @page {
+		    size: A4 landscape;
+		    margin: 8mm 15mm 5mm 15mm;
+		  }
+		 
+	  /* 印刷時は固定位置で @page 余白に揃える */
+		  .page-label {
+			position: fixed;
+			right: 15mm;
+			bottom: 15mm;
+		  }
+		 
+	 /* 印刷時は用紙基準で固定配置（常に紙の右15mm／下15mm） */
+	  .sheet--landscape.sheet--tight .page-label,
+	  .sheet .page-label,
+	  .page-label {
+		position: fixed;
+		right: 15mm;
+		bottom: 15mm;
+	  }
+
+
+	} 
+	
+
+      .container-gold {
+            width: 700px;
+            margin: 0px auto;
+            padding: 0px;
+            font-size: 13px;
+            background-color: #ffffff; /* 白背景 */
+            border: 2px solid #ffd966;    /* 太い青枠 */
+            border-radius: 8px;        /* 角丸 */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* 軽い影 */
+        }
+
+      /* 表紙など「紙面いっぱい枠」を A4 横の印字領域に確実に収めるためのボックス */
+      .page-box-fit {
+		    display: block;  
+		    width: 297mm;  /* A4横幅 */
+		    height: 210mm; /* A4高さ */
+		    box-sizing: border-box;
+		    border: 2px solid #000; /* 強制的に枠線を表示 */
+		    margin: 0 auto; /* 横方向に中央揃え */
+		    padding: 5mm; /* 余白を調整 */
+      }
+
+ /* =========================
+    3) タイポグラフィ
+    ========================= */
+	  /* 余白はユーティリティ（.mb-*, .pb-* 等）でのみ付与する方針。
+    下記では原型の margin/padding を 0 に統一します。 */
+ :where(h8,h9,h10,h11,h13,h16,p,figure,blockquote,hr,
+        ul,ol,dl,dd,dt,pre,code,kbd,samp,
+        table,caption) {
+   margin: 0;
+   padding: 0;
+ }
+ 
+ /* 見出しの基本スタイル（サイズ・太さのみ。余白は付けない） */
+ h16,h14,h20,h24 {
+   color: var(--color-fg, #000);   
+   line-height: 1.1;
+   font-weight: 700;
+}
+
+ h24{ font-size:24pt;
+     font-weight: 700; 
+}
+
+ h20{ font-size:20pt;
+     font-weight: 700; 
+}
+
+h18{ font-size:18pt;
+     font-weight: 700; 
+}
+
+ h16{ font-size:16pt; }
+ h14{ font-size:14pt; }
+ h13{ font-size:13pt; }
+ h11
+   { font-size:11pt; }
+ h10 {
+	   font-size: 10pt; }
+ h9 {
+	   font-size: 9pt; }
+ h8 {
+	   font-size: 8pt; }
+
+
+ /* 必要なときだけ使う行間ユーティリティ */
+	.lh-100 { line-height: 1; }
+	.lh-110 { line-height: 1.1; }
+	.lh-120 { line-height: 1.2; }
+	.lh-140 { line-height: 1.4; }
+/* 使い方  
+<h2 class="lh-100 m-0">■贈与税の速算表(一般税率)</h2>*/
+
+/* 見出しの余白で行間が崩れるのを防ぐ */
+	.m-0 { margin: 0; }
+	
+
+ h13b {
+	   font-size: 13pt;
+	  font-weight: 700; 
+	 }
+
+	.muted { color: #666; color: var(--color-muted, #666); }
+	 .small { font-size: 90%; }
+	 .x-small { font-size: 80%; }
+	 .bold { font-weight: 700; }
+	 
+
+/* =========================
+  テーブル
+   ========================= */
+	/* グローバル table には幅を指定しない（各HTMLで個別指定） */
+	table { border-collapse: collapse; border-spacing: 0; }
+
+	/* --- デフォルト：全実線①（外枠=太／内部=細） --- */
+	.g-table {
+	  table-layout: fixed;            /* Excel由来の幅を安定 */
+	  font-size: 11pt;
+	  line-height: 1.1;
+	  /* 外枠（太） */
+	  border: 0.6mm solid #000 !important;       /* fallback */
+	  border: var(--table-outer, 0.6mm solid #000) !important;
+	}
+		/* ① Bootstrap の .table が配るセル背景（--bs-table-bg）をこのテーブル系では無効化 */
+		.table.g-table {
+		  --bs-table-bg: transparent !important;
+		}
+
+	.g-table td {
+	   /* 内部罫線（細） */
+	   border: 0.3mm solid #999 !important;       /* fallback */
+	   border: var(--table-inner, 0.2mm solid #999) !important;
+	   padding: 1px 1px;               /* fallback */
+	   padding: var(--table-cell-py, 1px) var(--table-cell-px, 1px);	  
+	   vertical-align: middle;
+	   background: #fff;
+	 }
+	.g-table th {
+	   border: 0.3mm solid #999 !important;       /* fallback */
+	   border: var(--table-inner, 0.2mm solid #999) !important;
+	   padding: 1px 1px;               /* fallback */
+	   padding: var(--table-cell-py, 1px) var(--table-cell-px, 1px);	  
+	   vertical-align: middle;
+	   text-align: center;
+	   font-weight: 600;	
+	}
+		
+    /* thにグレーの背景色が乗らないので */
+		/* =========================
+		   背景色ユーティリティ（bgcolorの代替）
+		   ========================= */
+			.bg-cream { background-color: #FCEEBF !important; }
+			/* 必要に応じて色を増やせます（例） */
+			/* .bg-green { background-color:#E6F4EA !important; } */
+			.bg-grey {
+			  background-color: #e1e1e1 !important;
+			}
+
+	/* セルの罫線を太くするためのユーティリティ（優先度を .g-table 内で引き上げ） */
+		.g-table td.bl-strong, .g-table th.bl-strong { border-left:   0.6mm solid #000 !important; }
+		.g-table td.br-strong, .g-table th.br-strong { border-right:  0.6mm solid #000 !important; }
+		.g-table td.bt-strong, .g-table th.bt-strong { border-top:    0.6mm solid #000 !important; }
+		.g-table td.bb-strong, .g-table th.bb-strong { border-bottom: 0.6mm solid #000 !important; }
+	 
+	/* 行(tr)に bb-strong を付けたら、行内すべてのセルの下線を太線に */
+		.table.g-table > :not(caption) > tr.bb-strong > * {
+		  border-bottom: 0.6mm solid #000 !important; /* 既存の太さに合わせる */
+		}
+
+	/* （任意）次の行の上線が重なって太く見えるのを防ぐ */
+		.table.g-table > :not(caption) > tr.bb-strong + tr > * {
+		  border-top: 0 !important;
+		  border-top-color: transparent !important;
+		}
+     /* ▼使い方 行全体の下線を太くしたい
+           <tr class="bb-strong">*/
+
+		/* --- バリエーションB：全透明④（外枠もセルも消す） --- */
+		.g-table--none {
+		  table-layout: fixed; 
+		  border: 0 !important;
+		  outline: 0 !important;
+		  font-size: 11pt;
+	      line-height: 1.2;
+		  /* ▼中央寄せ。幅を指定している場合に有効 */
+		  margin-left: auto;
+		  margin-right: auto;		
+		}
+
+		.g-table--none th,
+		.g-table--none td {
+		  border: 0 !important;
+		}
+		
+		/* --- 罫線ユーティリティ（セル間の線を確実に消す） --- */
+		/* 基本（順不同セレクタで優先度を少し上げる） */
+		.b-none     { border: none !important; }
+		.bt-none   { border-top:    0 !important; }
+		.br-none   { border-right:  0 !important; }
+		.bb-none   { border-bottom: 0 !important; }
+		.bl-none   { border-left:   0 !important; }
+		.b-none   { border-left:   0 !important; border-right: 0 !important; }
+        /*使い方
+        <td class="is-center bb-none">⑬</td>*/
+
+		/* Bootstrap の .table > :not(caption) > * > * に勝つための形 */
+		.g-table > :not(caption) > * > .br-none { border-right: 0 !important; }
+		.g-table > :not(caption) > * > .bl-none { border-left:  0 !important; }
+		.g-table > :not(caption) > * > .bx-none { border-left:  0 !important; border-right: 0 !important; }
+		.g-table > :not(caption) > * > .bb-none { border-bottom: 0 !important; border-bottom-color: transparent !important; }
+		.g-table > :not(caption) > * > .bt-none { border-top:    0 !important; border-top-color:    transparent !important; }
+
+		/* 念のため .table.g-table にも適用（優先度さらに上げる） */
+		.table.g-table > :not(caption) > * > .bb-none { border-bottom: 0 !important; border-bottom-color: transparent !important; }
+		.table.g-table > :not(caption) > * > .bt-none { border-top:    0 !important; border-top-color:    transparent !important; }
+
+		/* ▼ 行(tr)に bb-none を付けたとき、行内の全セルの下線を消す */
+		.table.g-table > :not(caption) > tr.bt-none > * { border-bottom: 0 !important; border-top-color: transparent !important; }
+        .table.g-table > :not(caption) > tr.bb-none > * { border-bottom: 0 !important; border-bottom-color: transparent !important; }
+       /* ▼使い方 行全体の下線を透明にしたい
+           <tr class="bb-none">*/
+
+		/* 念のため「色を透明」にする版（環境差対策） */
+		.g-table .br-none { border-right-color: transparent !important; }
+		.g-table .bl-none { border-left-color:  transparent !important; }
+		
+      /* ▼ 点線の下罫線（行単位：tr に付けると行内すべてのセルに適用） */
+		.table.g-table > :not(caption) > tr.bb-dot > * {
+		  border-bottom: 0.3mm dotted #000 !important;
+		}
+        .table.g-table > :not(caption) > tr.bt-dot > * {
+		  border-top: 0.3mm dotted #000 !important;
+		}
+        /*使い方
+         <tr class="bb-dot">*/
+
+	
+/* ====== テーブル単位でフォントサイズを一括変更（.g-table / .g-table--non 両対応） ====== */
+		.g-table.fs-8, .g-table--non.fs-8 { font-size: 8px !important; }
+		.g-table.fs-9, .g-table--non.fs-9 { font-size: 9px !important; }
+		.g-table.fs-10, .g-table--non.fs-10 { font-size:10px !important; }
+		.g-table.fs-11, .g-table--non.fs-11 { font-size:11px !important; }
+		.g-table.fs-12, .g-table--non.fs-12 { font-size:12px !important; }
+		.g-table.fs-13, .g-table--non.fs-13 { font-size:13px !important; }
+		/*使い方 
+		<!-- g-table--non だけのテーブルでもOK -->
+		<table class="table g-table--non fs-11" style="width:900px; line-height:1.1; margin:0 auto;">
+		  ...
+		</table>*/
+
+		/* テーブルに fs-* を付けた場合、セル側の固定サイズを無効化して継承させる */
+		.g-table[class*="fs-"] td,
+		.g-table[class*="fs-"] th,
+		.g-table--non[class*="fs-"] td,
+		.g-table--non[class*="fs-"] th { font-size: 1em !important; }
+
+/* ====== tdだけフォントサイズ変更ユーティリティ（.g-table / .g-table--non 両対応） ====== */
+	.g-table td.fs-12, .g-table--non td.fs-12 { font-size: 12px !important; }
+	.g-table td.fs-11, .g-table--non td.fs-11 { font-size: 11px !important; }
+	.g-table td.fs-10, .g-table--non td.fs-10 { font-size: 10px !important; }
+	.g-table td.fs-9,  .g-table--non td.fs-9  { font-size: 9px  !important; }
+	.g-table td.fs-8,  .g-table--non td.fs-8  { font-size: 8px  !important; }	
+/*
+<!-- 使い方 -->
+<td class="fs-11">このセルだけ文字を11px</td>*/
+
+
+	 /*  余白最小ユーティリティ（セルと入力の“隙間”を極小化）
+	   ========================= */
+	/* セル側のパディングを0に（必要セルだけに付与） */
+	.td-tight { padding: 0 !important; }
+	/* 入力の内側余白も極小（テーブル外の入力には影響させたくないときは .g-table と併用） */
+	.input-tight { padding: 1px 2px !important; line-height: 1.0 !important; height: auto; }
+	/* セル内で横をいっぱいに（display:block で左右の隙間を消す） */
+	.block-100 { display: block; width: 100% !important; box-sizing: border-box; }
+
+
+/* =========================
+   くぼみ（インセット）入力
+   ========================= */
+	.input-inset {
+	  background: #FAFAFA;
+	  border: 1px solid #C7C7C7;
+	  border-radius: 3px;
+	  /* 内側に落ち込む影 + 薄い縁取り */
+	  box-shadow:
+		inset 0 1px 2px rgba(0,0,0,.18),
+		inset 0 0 0 1px rgba(255,255,255,.6);
+	}
+	.input-inset:focus {
+	  outline: none;
+	  border-color: #7AA7FF;
+	  box-shadow:
+		inset 0 1px 2px rgba(0,0,0,.18),
+		inset 0 0 0 1px rgba(255,255,255,.6),
+		0 0 0 2px rgba(122,167,255,.25);
+	}
+
+
+/* =========================
+   Global: Compact form controls
+   ========================= */
+		/* テキスト系（checkbox/radio/range は除外） */
+		input:not([type=checkbox]):not([type=radio]):not([type=range]),
+		select,
+		textarea {
+		  padding: 1px 1px !important;
+		  line-height: 1.1;
+		  height: auto;
+		  min-height: 0;
+		  box-sizing: border-box;
+		  font-size: inherit; /* ページの文字サイズに追従 */
+		}
+		/* 数値入力は右寄せ＋等幅数字 */
+		input[type="number"] {
+		  text-align: right;
+		  font-variant-numeric: tabular-nums lining-nums;
+		  font-feature-settings: "tnum" 1, "lnum" 1;
+		}
+		/* ユーティリティ */
+		.u-nowrap { white-space: nowrap; }
+
+		/* （任意）インラインから移設する場合の補完 */
+		.frac { display: flex; align-items: center; justify-content: center; gap: 4px; }
+		.frac input { width: 5em; text-align: right; }
+		.frac span { color: var(--color-muted); }
+
+		.ymd { display: flex; align-items: center; justify-content: center; gap: 6px; }
+		.ymd input.y { width: 6.5em; text-align: right; }
+		.ymd input.m, .ymd input.d { width: 4em; text-align: right; }
+		.ymd span { color: var(--color-muted); }
+
+/* =========================
+   Numeric width utilities (fixed digits)
+   - 4桁：西暦、2桁：月/日/時/分 等
+   - ch 単位 + 等幅数字で安定表示
+   ========================= */
+	/* ベース：数字を等幅で詰め、右寄せ（必要に応じて .center を追加） */
+	.input-num {
+	  font-variant-numeric: tabular-nums lining-nums;
+	  font-feature-settings: "tnum" 1, "lnum" 1;
+	  text-align: right;
+	  /* グローバルの input padding を継承（2px 3px !important） */
+	  letter-spacing: 0;
+	}
+	.input-num.center { text-align: center; }
+
+	/* 横幅は「桁数 × 1ch + 内側余白ぶん」を目安に算出 */
+	/* 余白調整用のカスタム変数（必要ならHTMLのstyleで上書き可） */
+	:root { --num-pad: 0.75rem; } /* だいたい padding-left+right の合計相当 */
+
+	/* 2桁（例：月・日・時・分） */
+	.input-num--2 { width: calc(2ch + var(--num-pad)); min-width: calc(2ch + var(--num-pad)); }
+	/* 3桁（例：日数、短い数値など） */
+	.input-num--3 { width: calc(3ch + var(--num-pad)); min-width: calc(3ch + var(--num-pad)); }
+	/* 4桁（例：西暦） */
+	.input-num--4 { width: calc(4ch + var(--num-pad)); min-width: calc(4ch + var(--num-pad)); }
+	/* 必要に応じて5/6桁も */
+	.input-num--5 { width: calc(5ch + var(--num-pad)); min-width: calc(5ch + var(--num-pad)); }
+	.input-num--6 { width: calc(6ch + var(--num-pad)); min-width: calc(6ch + var(--num-pad)); }
+	/* ★ 8桁：所有財産／金融資産などの最大8桁想定 */
+	.input-num--8 { width: calc(8ch + var(--num-pad)); min-width: calc(8ch + var(--num-pad)); }
+
+	/* g-table内は input幅100% ルールがあるため、input-num系は“固定幅”に上書き */
+	.g-table .input.input-num,
+	.g-table input.input-num,
+	.g-table select.input-num,
+	.g-table textarea.input-num {
+	  width: auto !important;  /* 100%を打ち消す */
+	  max-width: none;
+	}
+
+	/* type=number のスピン（上下矢印）を非表示に */
+	input[type="number"].no-spin { -moz-appearance: textfield; }
+	input[type="number"].no-spin::-webkit-outer-spin-button,
+	input[type="number"].no-spin::-webkit-inner-spin-button {
+	  -webkit-appearance: none; margin: 0;
+	}
+
+	/* y/m/d 用の簡易ユーティリティ（使う場合） */
+	.num-ymd { display: inline-flex; align-items: center; gap: .25rem; }
+	.num-ymd .y { width: calc(4ch + var(--num-pad)); text-align: center; }
+	.num-ymd .m, .num-ymd .d { width: calc(2ch + var(--num-pad)); text-align: center; }
+	.num-ymd .sep { padding: 0 .125rem; user-select: none; }
+
+	 /* キャプション／単位表示（余白は付けない） */
+ caption, .caption {
+   caption-side: top;
+   text-align: left;
+   font-size: 10pt;
+   color: var(--color-muted, #666);
+   margin: 0;
+ }
+ .unit {
+   font-size: 10pt;
+   color: var(--color-muted, #666);
+   margin: 0;
+ }
+
+ /* =========================
+    5) レイアウト補助
+    ========================= */
+ .grid {
+   display: grid;
+   gap: 8px;
+ }
+ .grid--2 { grid-template-columns: 1fr 1fr; }
+ .grid--3 { grid-template-columns: 1fr 1fr 1fr; }
+ .grid--4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+ 
+ .stack > * + * {
+   margin-top: 0.6em;
+ }
+ 
+ /* 幅ユーティリティ（%） */
+ .w-5  { width: 5%; }
+ .w-10 { width: 10%; }
+ .w-15 { width: 15%; }
+ .w-20 { width: 20%; }
+ .w-25 { width: 25%; }
+ .w-30 { width: 30%; }
+ .w-33 { width: 33.3333%; }
+ .w-40 { width: 40%; }
+ .w-50 { width: 50%; }
+ .w-60 { width: 60%; }
+ .w-66 { width: 66.6667%; }
+ .w-70 { width: 70%; }
+ .w-75 { width: 75%; }
+ .w-100 { width: 100%; }
+ 
+/* 改ページ制御（手動トリガ用） */
+ .break-before { break-before: page; page-break-before: always; }
+ .break-after  { break-after: page;  page-break-after: always; }
+ .avoid-break  { break-inside: avoid; page-break-inside: avoid; }
+ 
+ /* =========================
+    6) コンポーネント系
+    ========================= */
+	 /* セクション見出しブロック（Excelの太枠見出し風） */
+	 .block-heading {
+	   border-left: 4px solid #333;
+	   padding-left: 8px;
+	   margin: 0;
+	   font-weight: 700;
+	 }
+
+	 /* 情報ボックス（注記など） */
+	 .info-box {
+	   border: 1px solid #999;                         /* fallback */
+	   border: 1px solid var(--color-border, #999);
+	   padding: 8px 10px;
+	   background: #fcfcfc;
+	 }
+
+	 /* タイトル中央寄せの表紙向け補助 */
+	 .centered {
+	   text-align: center;
+	 }
+	 .v-center {
+	   display: flex;
+	   align-items: center;
+	   justify-content: center;
+	 }
+	 .full {
+	   width: 100%;
+	   height: 100%;
+	 }
+
+	 /* ロゴ等を左上・右上に配置する補助 */
+	 .header-row {
+	   display: flex;
+	   align-items: center;
+	   justify-content: space-between;
+	   gap: 12px;
+	   margin-bottom: 0;
+	 }
+	 .header-row__left,
+	 .header-row__right {
+	   display: flex;
+	   align-items: center;
+	   gap: 8px;
+	 }
+	 .logo {
+	   max-height: 28px;
+	   height: auto;
+	 }
+
+	 /* フッタ注記領域（必要に応じて使用） */
+	  .footer-note {
+   /* 既定余白なし。必要時は .mt-* を使用 */
+   margin-top: 0;
+   font-size: 10pt;
+   color: var(--color-muted, #666);
+ }
+
+ 
+ /* =========================
+    8) アクセシビリティ補助
+    ========================= */
+ .sr-only {
+   position: absolute;
+   width: 1px;
+   height: 1px;
+   padding: 0;
+   margin: -1px;
+   overflow: hidden;
+   clip: rect(0,0,0,0);
+   white-space: nowrap;
+   border: 0;
+ }
+
+/* --- アライメント／書式 --- */
+	.is-center { text-align: center; }
+	.is-end  { text-align: right; }
+	.is-start   { text-align: left; }
+	.nowrap    { white-space: nowrap; }
+	.is-numeric {
+	  text-align: right;
+	  font-variant-numeric: tabular-nums lining-nums;
+	  font-feature-settings: "tnum" 1, "lnum" 1;
+	}
+
+/* margin-top/bottom/left/right */
+.mt-0 { margin-top: 0 !important; }
+.mt-1 { margin-top: 4px !important;  margin-top: var(--sp-1,4px) !important; }
+.mt-2 { margin-top: 8px !important;  margin-top: var(--sp-2,8px) !important; }
+.mt-3 { margin-top: 12px !important; margin-top: var(--sp-3,12px) !important; }
+.mt-4 { margin-top: 16px !important; margin-top: var(--sp-4,16px) !important; }
+.mt-5 { margin-top: 24px !important; margin-top: var(--sp-5,24px) !important; }
+.mb-0 { margin-bottom: 0 !important; }
+.mb-1 { margin-bottom: 4px !important;  margin-bottom: var(--sp-1,4px) !important; }
+.mb-2 { margin-bottom: 8px !important;  margin-bottom: var(--sp-2,8px) !important; }
+.mb-3 { margin-bottom: 12px !important; margin-bottom: var(--sp-3,12px) !important; }
+.mb-4 { margin-bottom: 16px !important; margin-bottom: var(--sp-4,16px) !important; }
+.mb-5 { margin-bottom: 24px !important; margin-bottom: var(--sp-5,24px) !important; }
+.mb-10 { margin-bottom: 48px !important; margin-bottom: var(--sp-10,48px) !important; }
+/* 論理プロパティ（ms/me=inline start/end）。古い環境向けに左右も併記 */
+.ms-0 { margin-left: 0 !important; }
+.ms-1 { margin-left: 4px !important;  margin-inline-start: var(--sp-1,4px) !important; }
+.ms-2 { margin-left: 8px !important;  margin-inline-start: var(--sp-2,8px) !important; }
+.ms-3 { margin-left: 12px !important; margin-inline-start: var(--sp-3,12px) !important; }
+.ms-4 { margin-left: 16px !important; margin-inline-start: var(--sp-4,16px) !important; }
+.ms-5 { margin-left: 24px !important; margin-inline-start: var(--sp-5,24px) !important; }
+.me-0 { margin-right: 0 !important; }
+.me-1 { margin-right: 4px !important;  margin-inline-end: var(--sp-1,4px) !important; }
+.me-2 { margin-right: 8px !important;  margin-inline-end: var(--sp-2,8px) !important; }
+.me-3 { margin-right: 12px !important; margin-inline-end: var(--sp-3,12px) !important; }
+.me-4 { margin-right: 16px !important; margin-inline-end: var(--sp-4,16px) !important; }
+.me-5 { margin-right: 24px !important; margin-inline-end: var(--sp-5,24px) !important; }
+
+.ms-10 { margin-left: 48px !important; margin-inline-start: var(--sp-10,48px) !important; }
+.me-10 { margin-left: 48px !important; margin-inline-end: var(--sp-10,48px) !important; }
+.mt-10 { margin-top: 48px !important; margin-top: var(--sp-10,48px) !important; }
+
+
+/* padding top/bottom/左右のスケール */
+.pt-0 { padding-top: 0 !important; }
+.pt-1 { padding-top: 4px !important;  padding-top: var(--sp-1,4px) !important; }
+.pt-2 { padding-top: 8px !important;  padding-top: var(--sp-2,8px) !important; }
+.pt-3 { padding-top: 12px !important; padding-top: var(--sp-3,12px) !important; }
+.pt-4 { padding-top: 16px !important; padding-top: var(--sp-4,16px) !important; }
+.pt-5 { padding-top: 24px !important; padding-top: var(--sp-5,24px) !important; }
+.pt-10 { padding-top: 48px !important; padding-top: var(--sp-10,48px) !important; }
+.pb-0 { padding-bottom: 0 !important; }
+.pb-1 { padding-bottom: 4px !important;  padding-bottom: var(--sp-1,4px) !important; }
+.pb-2 { padding-bottom: 8px !important;  padding-bottom: var(--sp-2,8px) !important; }
+.pb-3 { padding-bottom: 12px !important; padding-bottom: var(--sp-3,12px) !important; }
+.pb-4 { padding-bottom: 16px !important; padding-bottom: var(--sp-4,16px) !important; }
+.pb-5 { padding-bottom: 24px !important; padding-bottom: var(--sp-5,24px) !important; }
+.ps-0 { padding-left: 0 !important; }
+.ps-1 { padding-left: 4px !important;  padding-inline-start: var(--sp-1,4px) !important; }
+.ps-2 { padding-left: 8px !important;  padding-inline-start: var(--sp-2,8px) !important; }
+.ps-3 { padding-left: 12px !important; padding-inline-start: var(--sp-3,12px) !important; }
+.ps-4 { padding-left: 16px !important; padding-inline-start: var(--sp-4,16px) !important; }
+.ps-5 { padding-left: 24px !important; padding-inline-start: var(--sp-5,24px) !important; }
+.ps-10 { padding-left: 48px !important; padding-inline-start: var(--sp-10,48px) !important; }
+.ps-20 { padding-left: 80px !important; padding-inline-start: var(--sp-20,80px) !important; }
+.ps-130 { padding-left: 130px !important; padding-inline-start: var(--sp-25,130px) !important; }
+.pe-0 { padding-right: 0 !important; }
+.pe-1 { padding-right: 4px !important;  padding-inline-end: var(--sp-1,4px) !important; }
+.pe-2 { padding-right: 8px !important;  padding-inline-end: var(--sp-2,8px) !important; }
+.pe-3 { padding-right: 12px !important; padding-inline-end: var(--sp-3,12px) !important; }
+.pe-4 { padding-right: 16px !important; padding-inline-end: var(--sp-4,16px) !important; }
+.pe-5 { padding-right: 24px !important; padding-inline-end: var(--sp-5,24px) !important; }
+
+.pe-10 { padding-right: 48px !important; padding-inline-end: var(--sp-10,48px) !important; }
+.pe-11 { padding-right: 52px !important; padding-inline-end: var(--sp-11,52px) !important; }
+
+/* 回り込み解除（align="left"/"right" 相当のfloat対策） */
+.clear-both { clear: both !important; }
+

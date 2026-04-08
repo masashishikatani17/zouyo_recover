@@ -1,0 +1,151 @@
+@extends('layouts.min')
+
+@section('title', '不動産（内訳）')
+
+@section('content')
+@php($inputs = $out['inputs'] ?? [])
+<div class="container" style="min-width: 720px; max-width: 960px;">
+  <form method="POST" action="{{ route('furusato.details.fudosan.save') }}">
+    @csrf
+    <input type="hidden" name="data_id" value="{{ $dataId }}">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">不動産（内訳）</h5>
+      <button type="submit" class="btn btn-outline-secondary btn-sm">戻る</button>
+    </div>
+
+    @if ($errors->any())
+      <div class="alert alert-danger">
+        <ul class="mb-0">
+          @foreach ($errors->all() as $error)
+            <li>{{ $error }}</li>
+          @endforeach
+        </ul>
+      </div>
+    @endif
+
+    <div class="table-responsive">
+      <table class="table table-bordered table-sm align-middle text-center mb-0">
+        <tbody>
+          <tr class="table-light">
+            <th class="align-middle" colspan="2">項目</th>
+            <th class="align-middle">{{ $warekiPrev ?? '前年' }}</th>
+            <th class="align-middle">{{ $warekiCurr ?? '当年' }}</th>
+          </tr>
+          <tr>
+            <th class="align-middle" colspan="2">収入金額</th>
+            <td>
+              @php($name = 'fudosan_shunyu_prev')
+              <input type="number" min="0" step="1" class="form-control form-control-sm text-end" value="{{ old($name, $inputs[$name] ?? null) }}" name="{{ $name }}">
+            </td>
+            <td>
+              @php($name = 'fudosan_shunyu_curr')
+              <input type="number" min="0" step="1" class="form-control form-control-sm text-end" value="{{ old($name, $inputs[$name] ?? null) }}" name="{{ $name }}">
+            </td>
+          </tr>
+          @php($expenseFields = [
+            ['label' => '', 'name' => 'fudosan_keihi_1'],
+            ['label' => '', 'name' => 'fudosan_keihi_2'],
+            ['label' => '', 'name' => 'fudosan_keihi_3'],
+            ['label' => '', 'name' => 'fudosan_keihi_4'],
+            ['label' => '', 'name' => 'fudosan_keihi_5'],
+            ['label' => '', 'name' => 'fudosan_keihi_6'],
+            ['label' => '', 'name' => 'fudosan_keihi_7'],
+            ['label' => 'その他', 'name' => 'fudosan_keihi_sonota'],
+            ['label' => '合計', 'name' => 'fudosan_keihi_gokei', 'readonly' => true],
+          ])
+          <tr>
+            <th class="align-middle" rowspan="9">必要経費</th>
+            @php($field = array_shift($expenseFields))
+            <td class="align-middle">{{ $field['label'] }}</td>
+            <td>
+              @php($name = $field['name'] . '_prev')
+              @php($readonly = $field['readonly'] ?? false)
+              <input type="number" min="0" step="1" class="form-control form-control-sm text-end{{ $readonly ? ' bg-light' : '' }}" value="{{ old($name, $inputs[$name] ?? null) }}" name="{{ $name }}" @if($readonly) readonly @endif>
+            </td>
+            <td>
+              @php($name = $field['name'] . '_curr')
+              <input type="number" min="0" step="1" class="form-control form-control-sm text-end{{ $readonly ? ' bg-light' : '' }}" value="{{ old($name, $inputs[$name] ?? null) }}" name="{{ $name }}" @if($readonly) readonly @endif>
+            </td>
+          </tr>
+          @foreach ($expenseFields as $field)
+            <tr>
+              <td class="align-middle">{{ $field['label'] }}</td>
+              <td>
+                @php($name = $field['name'] . '_prev')
+                @php($readonly = $field['readonly'] ?? false)
+                <input type="number" min="0" step="1" class="form-control form-control-sm text-end{{ $readonly ? ' bg-light' : '' }}" value="{{ old($name, $inputs[$name] ?? null) }}" name="{{ $name }}" @if($readonly) readonly @endif>
+              </td>
+              <td>
+                @php($name = $field['name'] . '_curr')
+                <input type="number" min="0" step="1" class="form-control form-control-sm text-end{{ $readonly ? ' bg-light' : '' }}" value="{{ old($name, $inputs[$name] ?? null) }}" name="{{ $name }}" @if($readonly) readonly @endif>
+              </td>
+            </tr>
+          @endforeach
+          @php($footerFields = [
+            ['name' => 'fudosan_sashihiki', 'label' => '差引金額', 'readonly' => true],
+            ['name' => 'fudosan_senjuusha_kyuyo', 'label' => '専従者給与'],
+            ['name' => 'fudosan_aoi_tokubetsu_kojo_mae', 'label' => '青色申告特別控除前の所得金額', 'readonly' => true],
+            ['name' => 'fudosan_aoi_tokubetsu_kojo_gaku', 'label' => '青色申告特別控除額'],
+            ['name' => 'fudosan_shotoku', 'label' => '所得金額', 'readonly' => true],
+            ['name' => 'fudosan_fusairishi', 'label' => '土地等を取得するための負債利子'],
+          ])
+          @foreach ($footerFields as $field)
+            <tr>
+              <th class="align-middle" colspan="2">{{ $field['label'] }}</th>
+              <td>
+                @php($name = $field['name'] . '_prev')
+                @php($readonly = $field['readonly'] ?? false)
+                <input type="number" min="0" step="1" class="form-control form-control-sm text-end{{ $readonly ? ' bg-light' : '' }}" value="{{ old($name, $inputs[$name] ?? null) }}" name="{{ $name }}" @if($readonly) readonly @endif>
+              </td>
+              <td>
+                @php($name = $field['name'] . '_curr')
+                <input type="number" min="0" step="1" class="form-control form-control-sm text-end{{ $readonly ? ' bg-light' : '' }}" value="{{ old($name, $inputs[$name] ?? null) }}" name="{{ $name }}" @if($readonly) readonly @endif>
+              </td>
+            </tr>
+          @endforeach
+        </tbody>
+      </table>
+    </div>
+  </form>
+</div>
+
+@push('scripts')
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const Q = (name) => document.querySelector(`[name="${name}"]`);
+  const V = (name) => { const el = Q(name); const s=(el?.value??'').trim(); return s===''?0:parseInt(s,10); };
+  const S = (name, val) => { const el = Q(name); if (el) el.value = (val ?? 0); };
+
+  const recalc = (suffix) => {
+    let g = 0;
+    for (let i=1;i<=7;i++) g += V(`fudosan_keihi_${i}_${suffix}`);
+    g += V(`fudosan_keihi_sonota_${suffix}`);
+    S(`fudosan_keihi_gokei_${suffix}`, g);
+
+    const shunyu = V(`fudosan_shunyu_${suffix}`);
+    const sashihiki = shunyu - g;
+    S(`fudosan_sashihiki_${suffix}`, sashihiki);
+
+    const senju = V(`fudosan_senjuusha_kyuyo_${suffix}`);
+    const mae = sashihiki - senju;
+    S(`fudosan_aoi_tokubetsu_kojo_mae_${suffix}`, mae);
+
+    const tokugaku = V(`fudosan_aoi_tokubetsu_kojo_gaku_${suffix}`);
+    S(`fudosan_shotoku_${suffix}`, mae - tokugaku);
+  };
+
+  const bindBlur = (names) => names.forEach(n=>{ const el=Q(n); if(el) el.addEventListener('blur', ()=>{ recalc('prev'); recalc('curr'); }); });
+
+  bindBlur([
+    'fudosan_shunyu_prev','fudosan_senjuusha_kyuyo_prev','fudosan_aoi_tokubetsu_kojo_gaku_prev',
+    'fudosan_shunyu_curr','fudosan_senjuusha_kyuyo_curr','fudosan_aoi_tokubetsu_kojo_gaku_curr',
+    'fudosan_keihi_1_prev','fudosan_keihi_2_prev','fudosan_keihi_3_prev','fudosan_keihi_4_prev','fudosan_keihi_5_prev','fudosan_keihi_6_prev','fudosan_keihi_7_prev','fudosan_keihi_sonota_prev',
+    'fudosan_keihi_1_curr','fudosan_keihi_2_curr','fudosan_keihi_3_curr','fudosan_keihi_4_curr','fudosan_keihi_5_curr','fudosan_keihi_6_curr','fudosan_keihi_7_curr','fudosan_keihi_sonota_curr'
+  ]);
+
+  recalc('prev'); recalc('curr');
+});
+</script>
+@endpush
+@endsection

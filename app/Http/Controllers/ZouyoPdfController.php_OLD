@@ -1,0 +1,172 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use TCPDF;
+
+use App\Models\ProposalHeader; // ProposalHeaderモデルをインポート
+
+class ZouyoPdfController extends Controller
+{
+    public function show(Request $request)
+    {
+        // DBから提案書ヘッダデータを取得
+        $ph = ProposalHeader::where('data_id', $request->data_id)->first();
+        
+        // 取得したデータを配列にセット
+        $header = [];
+        if ($ph) {
+            $header = [
+                'customer_name' => $ph->customer_name,
+                'title'         => $ph->title,
+                'year'          => $ph->doc_year,
+                'month'         => $ph->doc_month,
+                'day'           => $ph->doc_day,
+                'proposer_name' => $ph->proposer_name,
+            ];
+        }
+
+        // TCPDF インスタンス生成
+        $pdf = new TCPDF('L', 'mm', 'A4', true, 'UTF-8', false);
+        
+        // メタ情報設定
+        $pdf->SetCreator('Laravel TCPDF');
+        $pdf->SetAuthor('Zouyo App');
+        $pdf->SetTitle('贈与シミュレーション結果');
+        
+        // ヘッダーとフッター非表示
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        
+        // 余白設定
+        $pdf->SetMargins(10, 10, 10);
+        
+        // 日本語フォント設定
+        $pdf->setFontSubsetting(true);
+        $pdf->SetFont('mspgothic03', '', 10); // ここで「こじっく」フォントを使用
+        
+        // ページ追加（1ページ目）
+        $pdf->AddPage('L', 'A4');  // 'L'横向き, 'A4'サイズ
+        
+        // 枠線の追加
+        $pdf->SetLineWidth(0.5);
+        $pdf->Rect(10, 10, 277, 190, 'D'); // ページ全体の枠線
+        
+        // Bladeで渡すデータを変数に埋め込む
+        $html = "
+            <section class=\"sheet sheet--family sheet--landscape\" aria-label=\"表紙\">
+                <div class=\"page-box-fit\">
+                    <table class=\"table is-center mt-5\" style=\"width:100%;\">
+                        <tbody>
+                            <tr>
+                                <td height=\"87\" colspan=\"3\" valign=\"bottom\" class=\"is-start ps-130\">
+                                    <h1 style=\"font-size: 20pt; font-weight: 700; text-align: left; margin-left: 40px;\">{$header['customer_name']} 様</h1>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td height=\"75\" class=\"is-start ps-130\" colspan=\"3\">&nbsp;</td>
+                            </tr>
+                            <tr>
+                                <td style=\"width: 140px;\">&nbsp;</td>
+                                <td bgcolor=\"#0070C0\" style=\"width:183mm; height:70px; vertical-align: top; text-align: center; padding: 20px;\">
+                                    <h2 style=\"font-size: 24pt; font-weight: 700; color: #ffffff; line-height: 0.9; margin-top: -40px;\">{$header['title']}</h2>
+                                </td>
+
+                                <td style=\"width: 140px;\">&nbsp;</td>
+
+
+                            </tr>
+                            <tr>
+                                <td height=\"160\" colspan=\"3\" valign=\"bottom\">
+                                    <h3 style=\"font-size: 16pt; font-weight: 700; text-align: center; line-height: 4.0; margin-top: 10px;\">{$header['year']}年{$header['month']}月{$header['day']}日</h3>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td height=\"110\" colspan=\"3\" valign=\"bottom\">
+                                    <h2 style=\"font-size: 18pt; font-weight: 700; text-align: center; line-height: 2.0; margin-top: 10px;\">{$header['proposer_name']}</h2>
+                                </td>
+                            </tr>
+
+                            <tr>
+                                <td colspan=\"3\"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        ";
+
+        // HTMLを描画（CSSが反映されるように設定）
+        $pdf->writeHTML($html, true, false, true, false, '');
+
+        // もし次のページが追加されていたら削除
+        if ($pdf->getPage() > 1) {
+            $pdf->deletePage($pdf->getPage());
+        }
+
+        // PDF バイナリを取得してレスポンスとして返す
+        $pdfContent = $pdf->Output('hyoshi.pdf', 'S');
+        
+        return response($pdfContent)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'inline; filename="hyoshi.pdf"');
+    }
+
+    
+    public function generatePdf(Request $request)
+    {
+        // チェックボックスで選択されたページ
+        $selectedPages = $request->input('pages', []);
+
+        // TCPDF インスタンス生成
+        $pdf = new TCPDF('L', 'mm', 'A4', true, 'UTF-8', false);
+        
+        // メタ情報設定
+        $pdf->SetCreator('Laravel TCPDF');
+        $pdf->SetAuthor('Zouyo App');
+        $pdf->SetTitle('贈与シミュレーション結果');
+
+        // ヘッダーとフッター非表示
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        
+        // 余白設定
+        $pdf->SetMargins(10, 10, 10);
+        
+        // 日本語フォント設定
+        $pdf->setFontSubsetting(true);
+        $pdf->SetFont('mspgothic03', '', 10);
+
+        // ページ追加とコンテンツ追加
+        if (in_array(1, $selectedPages)) {
+            $pdf->AddPage('L', 'A4');
+            $pdf->writeHTML('<h1>はじめに</h1>'); // 表紙の内容
+        }
+
+        if (in_array(2, $selectedPages)) {
+            $pdf->AddPage('L', 'A4');
+            $pdf->writeHTML('<h1>暦年課税と相続時精算課税の比較</h1>');
+        }
+
+        // 他のページについても同様に処理
+        if (in_array(3, $selectedPages)) {
+            $pdf->AddPage('L', 'A4');
+            $pdf->writeHTML('<h1>贈与税、相続税の速算表</h1>');
+        }
+
+        // ...他のページも同様に処理...
+
+        // PDF バイナリを取得してレスポンスとして返す
+        $pdfContent = $pdf->Output('generated_pdf.pdf', 'S');
+        
+        return response($pdfContent)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'inline; filename="generated_pdf.pdf"');
+    }
+
+    
+    
+    
+}
