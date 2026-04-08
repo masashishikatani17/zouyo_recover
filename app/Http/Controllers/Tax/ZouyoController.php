@@ -46,6 +46,7 @@ use App\Models\ProposalFamilyMember;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
+use App\Services\Zouyo\ZouyoGeneralRateResolver;
 
 
 final class ZouyoController extends Controller
@@ -2042,6 +2043,9 @@ if ($i == 1){
      */
     private function computeRow0CumFromPast(int $dataId, int $recipientNo, Request $request): array
     {
+        
+        $giftBasicDeductionK = $this->resolveGiftBasicDeductionKForController($dataId, $request);
+
         // 基準日：future_base_ が来ていればそれを優先、無ければ 2024-12-31
         $y = (int)$request->input('future_base_year');
         $m = (int)$request->input('future_base_month');
@@ -2085,7 +2089,7 @@ if ($i == 1){
             $threeYearsAgo = $end->sub(new \DateInterval('P3Y'));
             if ($gd >= $threeYearsAgo) $within3K += $ak; else $over3K += $ak;
         }
-        $calCumK = $within3K + max(0, $over3K - 1100);
+        $calCumK = $within3K + max(0, $over3K - $giftBasicDeductionK);        
 
         // 精算（千円）
         $setRows = \App\Models\PastGiftSettlementEntry::query()
@@ -2099,12 +2103,38 @@ if ($i == 1){
             $yy = (int)($r->gift_year ?? 0);
             if ($yy >= 2024) $cnt2024++;
         }
-        $setCumK = max(0, $sumSetK - 1100 * $cnt2024);
+        $setCumK = max(0, $sumSetK - $giftBasicDeductionK * $cnt2024);        
 
         return [$calCumK, $setCumK];
     }
 
 
+
+    private function resolveGiftBasicDeductionYenForController(int $dataId, Request $request): int
+    {
+        $companyId = (int)($request->user()?->company_id ?? 0);
+        if ($companyId <= 0) {
+            $companyId = (int)(Data::query()->where('id', $dataId)->value('company_id') ?? 0);
+        }
+
+        $preferredYear = (int)($request->input('future_base_year') ?? $request->input('header_year') ?? self::MASTER_KIHU_YEAR);
+        if ($preferredYear <= 0) {
+            $preferredYear = self::MASTER_KIHU_YEAR;
+        }
+
+        /** @var \App\Services\Zouyo\ZouyoGeneralRateResolver $resolver */
+        $resolver = app(ZouyoGeneralRateResolver::class);
+
+        return $resolver->getBasicDeductionYen(
+            $companyId > 0 ? $companyId : null,
+            $preferredYear
+        );
+    }
+
+    private function resolveGiftBasicDeductionKForController(int $dataId, Request $request): int
+    {
+        return (int) round($this->resolveGiftBasicDeductionYenForController($dataId, $request) / 1000);
+    }
 
     /**
      * これからの贈与（ヘッダ/プラン）取得API

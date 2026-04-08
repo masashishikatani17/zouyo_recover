@@ -27,6 +27,8 @@ use App\Services\Zouyo\Cases\NoFinanceManualCase;
 use App\Services\Zouyo\Cases\HasFinanceLegalCase;
 use App\Services\Zouyo\Cases\HasFinanceManualCase;
 
+use App\Services\Zouyo\ZouyoGeneralRateResolver;
+
 use RuntimeException;
 
 /**
@@ -181,6 +183,70 @@ class ZouyotaxCalc
 
     /** @var array<string,int> */
     private array $giftRateYearCache = [];
+
+
+    /** @var ?int */
+    private ?int $giftBasicDeductionYenResolved = null;
+
+    private function resolveGiftMasterPreferredYear(array $payload): ?int
+    {
+        foreach (['kihu_year', 'header_year', 'doc_year', 'year', 'future_base_year'] as $yearKey) {
+            $year = (int)($payload[$yearKey] ?? 0);
+            if ($year > 0) {
+                return $year;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveGiftMasterCompanyId(array $payload): ?int
+    {
+        $companyId = (int)($payload['company_id'] ?? 0);
+        return $companyId > 0 ? $companyId : null;
+    }
+
+    private function resolveGiftBasicDeductionYen(array $payload = []): int
+    {
+        if ($this->giftBasicDeductionYenResolved !== null) {
+            return $this->giftBasicDeductionYenResolved;
+        }
+
+        /** @var \App\Services\Zouyo\ZouyoGeneralRateResolver $resolver */
+        $resolver = app(ZouyoGeneralRateResolver::class);
+
+        $this->giftBasicDeductionYenResolved = $resolver->getBasicDeductionYen(
+            $this->resolveGiftMasterCompanyId($payload),
+            $this->resolveGiftMasterPreferredYear($payload)
+        );
+
+        return $this->giftBasicDeductionYenResolved;
+    }
+
+    private function resolveGiftBasicDeductionK(array $payload = []): int
+    {
+        return (int) round($this->resolveGiftBasicDeductionYen($payload) / 1000);
+    }
+
+    private function enrichGiftBasicDeductionSummary(array $scenario, array $payload): array
+    {
+        if (!isset($scenario['summary']) || !is_array($scenario['summary'])) {
+            return $scenario;
+        }
+
+        $giftBasicDeductionYen = $this->resolveGiftBasicDeductionYen($payload);
+
+        $scenario['summary']['gift_basic_deduction_yen'] = $giftBasicDeductionYen;
+        $scenario['summary']['gift_basic_deduction_label'] = '年間' . number_format($giftBasicDeductionYen) . '円';
+        $scenario['summary']['gift_basic_deduction_formula_label'] = '基礎控除額 ' . number_format($giftBasicDeductionYen) . '円';
+
+        return $scenario;
+    }
+
+
+
+
+
 
     /**
      * 税率表の対象年（最新のkihu_year）を解決
@@ -383,6 +449,9 @@ class ZouyotaxCalc
     {
         
         $dataId = (int) ($payload['data_id'] ?? 0);
+
+        // ★ 贈与税の基礎控除額を先に確定して以後の内部計算で使い回す
+        $this->resolveGiftBasicDeductionYen($payload);
 
         //2025.12.18 01
 
@@ -1866,6 +1935,16 @@ class ZouyotaxCalc
         }
 
 
+        // ★ 贈与税の基礎控除額（一般税率マスター由来）も summary に付与
+        $before = $this->enrichGiftBasicDeductionSummary($before, $payload);
+        $after  = $this->enrichGiftBasicDeductionSummary($after, $payload);
+
+        foreach ($projBefore as $tt => $row) {
+            $projBefore[$tt] = $this->enrichGiftBasicDeductionSummary($row, $payload);
+        }
+        foreach ($projAfter as $tt => $row) {
+            $projAfter[$tt] = $this->enrichGiftBasicDeductionSummary($row, $payload);
+        }
 
         // ★ 「これからの贈与」が一切無い場合は、対策後シナリオを対策前と完全一致させる
         //   （相続税・贈与税累計・合計が before / projections.before と同じになるよう強制）
