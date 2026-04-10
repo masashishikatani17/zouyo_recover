@@ -548,7 +548,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
         // 被相続人氏名をPDFに描画
         $pdf->SetFont('mspgothic03', '', 12);
         $xx =  56.0;
-        $yy = 121.5;
+        $yy = 104.5;
         $pdf->MultiCell(40, 10, $donorName , $wakusen, 'L', 0, 0, $xx, $yy);
 
 
@@ -586,7 +586,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
         // 相続人情報をPDFに描画
         $pdf->SetFont('mspgothic03', '', 11);
         $xx = 139.0;
-        $yy += 17.0;
+        $yy += 16.5;
 
 
         // ▼ 合計欄の「課税価格（千円）」：isanbunkatu.blade の「課税価格 合計（合計）」と同額にする
@@ -745,19 +745,19 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
          */
         $leftCalcY = [
             // 「課税価格の計算」表（行間を少し詰めた版）
-            'property_before'      => 57.0,
-            'property_after'       => 74.0,
-            'gift_add_calendar'    => 80.0,
-            'gift_add_settlement'  => 86.0,
-            'taxable_price'        => 92.0,
+            'property_before'      => 53.5,
+            'property_after'       => 70.0,
+            'gift_add_calendar'    => 75.5,
+            'gift_add_settlement'  => 81.0,
+            'taxable_price'        => 87.0,
         ];
 
         $gridY = [
             // 課税価格ブロック
             // A3_05_pr_kakusouzoku.pdf の現物罫線中央に合わせた実測値
-            'financial_assets'         => 145.5, // ①
-            'other_assets'             => 152.1, // ②
-            'property_total'           => 158.5, // ③
+            'financial_assets'         => 134.5, // ①
+            'other_assets'             => 139.1, // ②
+            'property_total'           => 147.7, // ③
             'lifetime_gift'            => 165.0, // ④
             'taxable_total'            => 171.5, // ⑤
             'basic_deduction'          => 178.0, // ⑥
