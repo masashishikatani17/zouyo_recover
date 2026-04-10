@@ -362,7 +362,42 @@ class A3SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
             $this->drawA3TableCell($pdf, $this->formatTrendAmountCell($row['refund_tax'] ?? null), $xx, $middleRowY['refund_tax'], $middleColWidth, $middleRowHeight, 'R');
         }
 
-    
+
+
+        /**
+         * 真ん中の表の下：基礎控除額の算式
+         * 例）※30,000千円＋6,000千円×2人
+         *
+         * - 基礎控除の基準額 / 1人当たり加算額は、Controller / Calculator 側で
+         *   マスターから取得して payload / summary に載せた値を優先して使う
+         * - 法定相続人の人数は家族構成データ（ProposalFamilyMember）から数える
+         */
+        $afterSummaryForFormula = is_array($resultsData['after']['summary'] ?? null)
+            ? $resultsData['after']['summary']
+            : [];
+
+        $legalHeirCount = $this->countLegalHeirsForBasicDeduction($familyRows);
+        $basicDeductionFormulaLabel = $this->resolveBasicDeductionFormulaLabel(
+            $payload,
+            $afterSummaryForFormula,
+            $legalHeirCount
+        );
+
+        if ($basicDeductionFormulaLabel !== '') {
+            $pdf->SetFont('mspgothic03', '', 10);
+            $pdf->MultiCell(
+                150,
+                6,
+                '※' . $basicDeductionFormulaLabel,
+                0,
+                'L',
+                0,
+                0,
+                17.0,
+                206.0
+            );
+        }
+
 
         // =========================
         // 下表：贈与による減税効果
@@ -962,6 +997,97 @@ class A3SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
             !empty($data['after']['projections']['after'] ?? []) ||
             !empty($data['after']['projections'] ?? []);
     }
+
+
+
+
+    /**
+     * 基礎控除額の算式ラベルを返す
+     *
+     * 優先順位:
+     * 1. payload['basic_deduction_formula_label']
+     * 2. summary['basic_deduction_formula_label']
+     * 3. summary の内訳（base/per_heir）から組み立て
+     *
+     * ※ PDFサービスではマスターを直接読まず、
+     *    Controller / Calculator でマスターから取得した値を受ける前提で組み立てる。
+     */
+    private function resolveBasicDeductionFormulaLabel(array $payload, array $summary, int $legalHeirCount): string
+    {
+        $label = trim((string)(
+            $payload['basic_deduction_formula_label']
+            ?? $summary['basic_deduction_formula_label']
+            ?? ''
+        ));
+
+        if ($label !== '') {
+            return $label;
+        }
+
+        $baseKyen = $summary['basic_deduction_base_kyen']
+            ?? $summary['basic_deduction_base_thousand']
+            ?? null;
+
+        $perHeirKyen = $summary['basic_deduction_per_heir_kyen']
+            ?? $summary['basic_deduction_per_heir_thousand']
+            ?? null;
+
+        if (is_numeric($baseKyen) && is_numeric($perHeirKyen) && $legalHeirCount > 0) {
+            return number_format((int)$baseKyen) . '千円＋'
+                . number_format((int)$perHeirKyen) . '千円×'
+                . $legalHeirCount . '人';
+        }
+
+        return '';
+    }
+
+    /**
+     * 家族構成データから法定相続人の人数を数える
+     *
+     * 優先順位:
+     * 1. souzokunin === '法定相続人'
+     * 2. bunsi / bunbo がともに有効なら法定相続人とみなす
+     *
+     * ※ row_no=1 は被相続人なので除外し、2..10 のみ対象
+     */
+    private function countLegalHeirsForBasicDeduction($familyRows): int
+    {
+        $count = 0;
+
+        for ($no = 2; $no <= 10; $no++) {
+            $row = $familyRows[$no] ?? null;
+            if (!$row) {
+                continue;
+            }
+            $name = trim((string)($row->name ?? ''));
+            if ($name === '') {
+                continue;
+            }
+
+            $souzokunin = trim((string)($row->souzokunin ?? ''));
+            if ($souzokunin === '法定相続人') {
+                $count++;
+                continue;
+            }
+
+            $bunsi = $row->bunsi ?? null;
+            $bunbo = $row->bunbo ?? null;
+
+            $bunsiInt = ($bunsi === null || $bunsi === '')
+                ? null
+                : (int)preg_replace('/[^\d\-]/u', '', (string)$bunsi);
+            $bunboInt = ($bunbo === null || $bunbo === '')
+                ? null
+                : (int)preg_replace('/[^\d\-]/u', '', (string)$bunbo);
+
+            if ($bunsiInt !== null && $bunboInt !== null && $bunsiInt >= 1 && $bunboInt >= 1) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
 
     
     private function logResultsShape(int $dataId, array $r): void

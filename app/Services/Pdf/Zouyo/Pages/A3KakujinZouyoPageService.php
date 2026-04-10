@@ -280,6 +280,9 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
                 $before2022['cal_basic']  -= $basic;
                 $before2022['cal_after']  += max(0, $amount - $basic);
                 $before2022['cal_tax']    += (int)($taxByYear[$year] ?? 0);
+                
+                // 贈与加算累計額は、過年度の暦年贈与額の累計を表示する
+                $before2022['cal_cum']    += $amount;                
             }
         }
 
@@ -290,6 +293,9 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
                 $before2022['set_after']  += $amount;
                 $before2022['set_after25']+= max(0, $amount - 25000);
                 $before2022['set_tax']    += (int)($seisanTaxByYear[$year] ?? 0);
+                
+                // 贈与加算累計額は、過年度の精算課税贈与額の累計を表示する
+                $before2022['set_cum']    += $amount;                
             }
         }
 
@@ -563,7 +569,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
         $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['set_after25']?? 0), $sumColX, $ySetAfter25,16, 'R', $fontSizeSet);
         $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['set_tax']    ?? 0), $sumColX, $ySetTax,    16, 'R', $fontSizeSet);
         //$this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['set_cum']    ?? 0), $sumColX, $ySetCum,    16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, '    －', $sumColX, $ySetCum,    16, 'C', $fontSizeSet);
+        $this->drawA3Text($pdf, '   －', $sumColX, $ySetCum,    16, 'C', $fontSizeSet);
 
         
     }

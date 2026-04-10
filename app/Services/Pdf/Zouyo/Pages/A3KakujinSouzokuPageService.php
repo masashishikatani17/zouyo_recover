@@ -4,6 +4,8 @@ namespace App\Services\Pdf\Zouyo\Pages;
 
 use App\Services\Pdf\Zouyo\ZouyoPdfPageInterface;
 use App\Models\FutureGiftRecipient;
+use App\Models\PastGiftCalendarEntry;
+use App\Models\PastGiftSettlementEntry;
 use App\Models\ProposalFamilyMember;
 use App\Models\InheritanceDistributionHeader;
 use App\Models\InheritanceDistributionMember;
@@ -391,79 +393,23 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
          * ▼ 左上「課税価格の計算」表（対策前・1年目）
          *
          *  - 所有財産の額(贈与前)      = 被相続人の所有財産（千円）
-         *  - 贈与加算累計額（暦年贈与） = before結果の暦年分加算額（千円）
-         *  - 贈与加算累計額（精算贈与） = before結果の精算分加算額（千円）
+         *  - 贈与加算累計額（暦年贈与） = PastGiftCalendarEntry.amount_thousand の合計
+         *  - 贈与加算累計額（精算贈与） = PastGiftSettlementEntry.amount_thousand の合計
          *  - 課税価格                  = 相続財産の額(贈与後) + 上記2加算
          *
-         *  ※ 対策前・1年目なので「贈与による財産の減少」は 0 とし、
-         *     「相続財産の額(贈与後)」は「所有財産の額(贈与前)」と同額にする。
-         *  ※ 暦年/精算の分割キーは resultsData の構造差異に備えて候補キーを順に参照する。
-         *     もし split が取れず total しか取れない場合は、課税価格との整合を優先して
-         *     total を暦年側へ寄せるフォールバックにしている。
+         *  ※ 左上表の暦年/精算の分離は resultsData のキー探索に依存させず、
+         *     KakujinZouyoPageService と同じく過年度入力テーブルから別々に集計する。
+         *  ※ これにより、暦年欄に暦年+精算の合計が入ってしまう症状を防ぐ。
          */
-        $pickFirstNumeric = function (array $source, array $keys): ?int {
-            foreach ($keys as $key) {
-                $val = Arr::get($source, $key);
-                if ($val === null || $val === '') {
-                    continue;
-                }
-                if (is_numeric($val)) {
-                    return (int) $val;
-                }
-            }
-            return null;
-        };
+        $calendarGiftAddKyen = (int) PastGiftCalendarEntry::query()
+            ->where('data_id', $dataId)
+            ->whereBetween('recipient_no', [2, 10])
+            ->sum('amount_thousand');
 
-        $sumHeirYenByKeys = function (array $keys) use ($heirsByIdx, $pickFirstNumeric): int {
-            $sum = 0;
-            for ($i = 2; $i <= 10; $i++) {
-                $row = is_array($heirsByIdx[$i] ?? null) ? $heirsByIdx[$i] : [];
-                $val = $pickFirstNumeric($row, $keys);
-                if ($val !== null) {
-                    $sum += $val;
-                }
-            }
-            return $sum;
-        };
-
-        $calendarGiftAddYen = $pickFirstNumeric($summary, [
-            'calendar_gift_addition_yen',
-            'calendar_gift_included_yen',
-            'past_gift_calendar_included_yen',
-            'total_calendar_gift_included_yen',
-        ]);
-        if ($calendarGiftAddYen === null) {
-            $calendarGiftAddYen = $sumHeirYenByKeys([
-                'calendar_gift_addition_yen',
-                'calendar_gift_included_yen',
-                'past_gift_calendar_included_yen',
-                'past_gift_included_calendar_yen',
-                'lifetime_gift_addition_calendar_yen',
-            ]);
-        }
-
-        $settlementGiftAddYen = $pickFirstNumeric($summary, [
-            'settlement_gift_addition_yen',
-            'settlement_gift_included_yen',
-            'past_gift_settlement_included_yen',
-            'total_settlement_gift_included_yen',
-        ]);
-        if ($settlementGiftAddYen === null) {
-            $settlementGiftAddYen = $sumHeirYenByKeys([
-                'settlement_gift_addition_yen',
-                'settlement_gift_included_yen',
-                'past_gift_settlement_included_yen',
-                'past_gift_included_settlement_yen',
-                'lifetime_gift_addition_settlement_yen',
-            ]);
-        }
-
-        $calendarGiftAddKyen   = (int) round(((int) $calendarGiftAddYen) / 1000);
-        $settlementGiftAddKyen = (int) round(((int) $settlementGiftAddYen) / 1000);
-
-        if ($calendarGiftAddKyen === 0 && $settlementGiftAddKyen === 0 && $sumLifetimeGiftKyen > 0) {
-            $calendarGiftAddKyen = $sumLifetimeGiftKyen;
-        }
+        $settlementGiftAddKyen = (int) PastGiftSettlementEntry::query()
+            ->where('data_id', $dataId)
+            ->whereBetween('recipient_no', [2, 10])
+            ->sum('amount_thousand');
 
         $propertyBeforeGiftKyen      = $basePropertyKyen;
         $calendarGiftReductionKyen   = 0;

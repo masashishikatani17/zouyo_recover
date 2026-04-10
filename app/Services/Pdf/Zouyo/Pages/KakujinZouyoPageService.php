@@ -381,6 +381,15 @@ class KakujinZouyoPageService implements ZouyoPdfPageInterface
             }
         }
 
+
+
+        // 過年度分の「贈与加算累計額」は、過年度贈与額の累計として表示する
+        // - 暦年課税  : PastGiftCalendarEntry.amount_thousand の累計
+        // - 精算課税  : PastGiftSettlementEntry.amount_thousand の累計
+        $runningPastCalCum = $before2022Z;
+        $runningPastSetCum = $before2022SetZ;
+
+
         // 表示対象3年より前の合計行を表示
         $yBase = 58.0;      // 表示開始 Y 座標（テンプレに合わせて微調整）
         $lineH = 4.5;       // 行高さ
@@ -402,7 +411,8 @@ class KakujinZouyoPageService implements ZouyoPdfPageInterface
         $pdf->MultiCell(15, 6, number_format($before2022T), $wakusen, 'R', 0, 0, $x, $y);
 
         $x = $colX['cal_cum'];
-        $pdf->MultiCell(15, 6, number_format(0), $wakusen, 'R', 0, 0, $x, $y);
+        $pdf->MultiCell(15, 6, number_format($runningPastCalCum), $wakusen, 'R', 0, 0, $x, $y);
+        
 
 
 
@@ -426,7 +436,8 @@ class KakujinZouyoPageService implements ZouyoPdfPageInterface
         $pdf->MultiCell(15, 6, $fmt($before2022SetK), $wakusen, 'R', 0, 0, $x, $y);
         // 贈与加算累計額
         $x = $colX['set_cum'];
-        $pdf->MultiCell(15, 6, $fmt(0), $wakusen, 'R', 0, 0, $x, $y);
+        $pdf->MultiCell(15, 6, $fmt($runningPastSetCum), $wakusen, 'R', 0, 0, $x, $y);
+        
 
 
         $rowIdx += 2;
@@ -451,6 +462,10 @@ class KakujinZouyoPageService implements ZouyoPdfPageInterface
             $zYear = $zoyoByYear[$year] ?? 0;
             $basicYear = $kojoByYear[$year] ?? 0;
             $kYear     = $taxByYear[$year] ?? 0;
+        
+            $setZYear  = $seisanZoyoByYear[$year] ?? 0;
+            $setKYear  = $seisanTaxByYear[$year] ?? 0;            
+            
             $y = $yBase + $lineH * $rowIdx;
 
             // データが無い年も「0」を印字したいので、
@@ -463,6 +478,11 @@ class KakujinZouyoPageService implements ZouyoPdfPageInterface
                 $basicKForYear     = $basicYear;                
                 $afterBasicForYear = max($zYear - $basicKForYear, 0);
             }
+
+
+            // 過年度分の贈与加算累計額は、その年分を加えた累計額を表示する
+            $runningPastCalCum += $zYear;
+            $runningPastSetCum += $setZYear;
 
                 // 贈与年（gift_year）
                 //if ($year>0) {
@@ -502,12 +522,10 @@ class KakujinZouyoPageService implements ZouyoPdfPageInterface
         
                 //贈与加算累計額
                 $x = $colX['cal_cum'];
-                $pdf->MultiCell(15, 6, $fmt(0), $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell(15, 6, $fmt($runningPastCalCum), $wakusen, 'R', 0, 0, $x, $y);
+                
         
             // ▼ 精算課税：贈与額ほか（千円表示）
-                $setZYear = $seisanZoyoByYear[$year] ?? 0;
-                $setKYear = $seisanTaxByYear[$year] ?? 0;
-
                 // 贈与額
                 $x = $colX['set_amount'];
                 $pdf->MultiCell(15, 6, $fmt($setZYear), $wakusen, 'R', 0, 0, $x, $y);
@@ -525,7 +543,7 @@ class KakujinZouyoPageService implements ZouyoPdfPageInterface
                 $pdf->MultiCell(15, 6, $fmt($setKYear), $wakusen, 'R', 0, 0, $x, $y);
                 // 贈与加算累計額
                 $x = $colX['set_cum'];
-                $pdf->MultiCell(15, 6, $fmt(0), $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell(15, 6, $fmt($runningPastSetCum), $wakusen, 'R', 0, 0, $x, $y);                
 
 
             // ★明細行で表示した税額を、そのまま合計へ加算
@@ -858,21 +876,23 @@ $futureSetTaxK = (int) $futureSetTaxRows->sum(function ($row) use ($toInt) {
 
         // 印字処理（暦年）
         $pdf->MultiCell(15, 6, number_format($sumCalAmount), 0, 'R', 0, 0, $colX['cal_amount'], $sumY);
-        //$pdf->MultiCell(15, 6, number_format($sumCalBasic),  0, 'R', 0, 0, $colX['cal_basic'],  $sumY);
-        //$pdf->MultiCell(15, 6, number_format($sumCalAfter),  0, 'R', 0, 0, $colX['cal_after'],  $sumY);
+        $pdf->MultiCell(15, 6, number_format($sumCalBasic),  0, 'R', 0, 0, $colX['cal_basic'],  $sumY);
+        $pdf->MultiCell(15, 6, number_format($sumCalAfter),  0, 'R', 0, 0, $colX['cal_after'],  $sumY);
         $pdf->MultiCell(15, 6, number_format($sumCalTax),    0, 'R', 0, 0, $colX['cal_tax'],    $sumY);
         //$pdf->MultiCell(15, 6, number_format($sumCalCum),    0, 'R', 0, 0, $colX['cal_cum'],    $sumY);
+        $pdf->MultiCell(15, 6, '－',                         0, 'C', 0, 0, $colX['cal_cum'] + 1.0,    $sumY);
 
         // 印字処理（精算課税）
         $pdf->MultiCell(15, 6, number_format($sumSetAmount),   0, 'R', 0, 0, $colX['set_amount'],    $sumY);
-        //$pdf->MultiCell(15, 6, number_format($sumSetBasic),    0, 'R', 0, 0, $colX['set_basic110'],  $sumY);
-        //$pdf->MultiCell(15, 6, number_format($sumSetAfter),    0, 'R', 0, 0, $colX['set_after'],     $sumY);
-        //$pdf->MultiCell(15, 6, number_format($sumSetAfter25),  0, 'R', 0, 0, $colX['set_after_25m'], $sumY);
+        $pdf->MultiCell(15, 6, number_format($sumSetBasic),    0, 'R', 0, 0, $colX['set_basic110'],  $sumY);
+        $pdf->MultiCell(15, 6, number_format($sumSetAfter),    0, 'R', 0, 0, $colX['set_after'],     $sumY);
+        $pdf->MultiCell(15, 6, number_format($sumSetAfter25),  0, 'R', 0, 0, $colX['set_after_25m'], $sumY);
         // ★ 精算課税分の贈与税合計は、
         //    PastGiftSettlementEntry::tax_thousand の合計のみを表示する
         //    （これからの贈与分は行明細で見る。合計行では「過年度分の入力値」を優先）
         $pdf->MultiCell(15, 6, number_format($sumSetTax20),    0, 'R', 0, 0, $colX['set_tax20'],     $sumY);
        //$pdf->MultiCell(15, 6, number_format($sumSetCum),      0, 'R', 0, 0, $colX['set_cum'],       $sumY);
+       $pdf->MultiCell(15, 6, '－',                            0, 'C', 0, 0, $colX['set_cum'] + 1.0,       $sumY);
 
         
     }   
