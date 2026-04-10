@@ -450,6 +450,7 @@
           </tr>
 
           <!-- 生前贈与加算 -->
+          <?php $i = 4; ?>
           @php
               $sumLifetimeGiftAddition = 0;
               for ($no = 2; $no <= 10; $no++) {
@@ -471,6 +472,7 @@
           </tr>
 
           {{-- 合計（所有財産 + 生前贈与加算） --}}
+          <?php $i = 5; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">課税価格 合計</td>
             <td class="text-center">{{ $i }}</td>
@@ -515,7 +517,7 @@
             $basicDeductionKyen = 30000 + (6000 * $legalHeirCount);
           @endphp
 
-          <?php $i = 4; ?>
+          <?php $i = 6; ?>
 
           <tr>
 
@@ -599,7 +601,7 @@
             }
           @endphp
 
-          <?php $i = 5; ?>
+          <?php $i = 7; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">課税遺産総額</td>
             <td class="text-center">{{ $i }}</td>
@@ -612,7 +614,7 @@
             </td>
           </tr>
 
-          <?php $i = 6; ?>
+          <?php $i = 8; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">法定相続分</td>
             <td class="text-center">{{ $i }}</td>
@@ -622,7 +624,7 @@
             </td>
           </tr>
 
-          <?php $i = 7; ?>
+          <?php $i = 9; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">相続税の総額</td>
             <td class="text-center">{{ $i }}</td>
@@ -634,7 +636,7 @@
             </td>
           </tr>
 
-          <?php $i = 8; ?>
+          <?php $i = 10; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">あん分割合</td>
             <td class="text-center">{{ $i }}</td>
@@ -646,7 +648,7 @@
             </td>
           </tr>
 
-          <?php $i = 9; ?>
+          <?php $i = 11; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">算出税額</td>
             <td class="text-center">{{ $i }}</td>
@@ -658,7 +660,7 @@
             </td>
           </tr>
 
-          <?php $i = 10; ?>
+          <?php $i = 12; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">２割加算</td>
             <td class="text-center">{{ $i }}</td>
@@ -677,7 +679,7 @@
             </td>
           </tr>
 
-          <?php $i = 11; ?>
+          <?php $i = 13; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">暦年課税分の贈与税額控除額</td>
             <td class="text-center">{{ $i }}</td>
@@ -689,7 +691,7 @@
             </td>
           </tr>
 
-          <?php $i = 12; ?>
+          <?php $i = 14; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">配偶者の税額軽減額</td>
             <td class="text-center">{{ $i }}</td>
@@ -701,7 +703,7 @@
             </td>
           </tr>
 
-          <?php $i = 13; ?>
+          <?php $i = 15; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">その他の税額控除額</td>
             <td class="text-center">{{ $i }}</td>
@@ -713,7 +715,7 @@
             </td>
           </tr>
 
-          <?php $i = 14; ?>
+          <?php $i = 16; ?>
           <tr>
             <td class="text-center" style="font-weight: bold;">控除税額合計</td>
             <td class="text-center">{{ $i }}</td>
@@ -730,7 +732,7 @@
             </td>
           </tr>
 
-          <?php $i = 15; ?>
+          <?php $i = 17; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">差引税額</td>
             <td class="text-center">{{ $i }}</td>
@@ -742,7 +744,7 @@
             </td>
           </tr>
 
-          <?php $i = 16; ?>
+          <?php $i = 18; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">相続時精算課税分の贈与税額控除額</td>
             <td class="text-center">{{ $i }}</td>
@@ -754,7 +756,7 @@
             </td>
           </tr>
 
-          <?php $i = 17; ?>
+          <?php $i = 19; ?>
           <tr>
             <td class="text-center" style="font-weight: bold;">小　　　計</td>
             <td class="text-center">{{ $i }}</td>
@@ -766,7 +768,7 @@
             </td>
           </tr>
 
-          <?php $i = 18; ?>
+          <?php $i = 20; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">納付税額</td>
             <td class="text-center">{{ $i }}</td>
@@ -778,7 +780,7 @@
             </td>
           </tr>
 
-          <?php $i = 19; ?>
+          <?php $i = 21; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">還付税額</td>
             <td class="text-center">{{ $i }}</td>

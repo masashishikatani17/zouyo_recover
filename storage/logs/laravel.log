@@ -959,3 +959,4 @@
 [2026-04-09 11:21:19] local.DEBUG: 2026.01.16 1000001 [ZouyotaxCalc][after_proj][t=18] incl_calendar_yen=0  
 [2026-04-09 11:21:19] local.DEBUG: 2026.01.16 1000001 [ZouyotaxCalc][after_proj][t=19] incl_calendar_yen=0  
 [2026-04-09 11:21:19] local.DEBUG: 2026.01.16 1000001 [ZouyotaxCalc][after_proj][t=20] incl_calendar_yen=0  
+[2026-04-10 17:05:38] local.ERROR: [ZouyoPdfController] PDF generation failed {"dataId":45,"paperSize":"A3","pages":[5],"error":"syntax error, unexpected token \"if\""} 

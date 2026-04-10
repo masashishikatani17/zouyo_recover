@@ -94,7 +94,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
         foreach ($familyRows as $rowNo => $row) {
             $birthByRow[(int)$rowNo] = [
                 'year'  => $row->birth_year  !== null ? (int)$row->birth_year  : null,
-                'month' => $row->birth_month !== null ? (int)$row->birth_month : null,
+                'month' => $row->bir144th_month !== null ? (int)$row->birth_month : null,
                 'day'   => $row->birth_day   !== null ? (int)$row->birth_day   : null,
             ];
             
@@ -461,7 +461,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
             return;
         }
         
-        $originY = $panel === 'top' ? 0.0 : 139.2;
+        $originY = $panel === 'top' ? 0.0 : 141.0;
         $originX = 0.0;
         $wakusen = 0;
 

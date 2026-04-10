@@ -99,6 +99,25 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                     $prefillInheritance['members'][$no] = [
                         'taxable_auto' => $r->taxable_auto_value_thousand,
                         'taxable_manu' => $r->taxable_manu_value_thousand,
+                        // isanbunkatu.blade の手入力欄に対応する内訳（命名ゆれを吸収）
+                        'cash_share'   => $r->cash_share_value_thousand
+                            ?? $r->cash_share_thousand
+                            ?? $r->cash_share
+                            ?? $r->financial_assets_value_thousand
+                            ?? $r->financial_assets_thousand
+                            ?? $r->financial_assets
+                            ?? $r->kinyu_shisan_value_thousand
+                            ?? $r->kinyu_shisan_thousand
+                            ?? $r->kinyu_shisan,
+                        'other_share'  => $r->other_share_value_thousand
+                            ?? $r->other_share_thousand
+                            ?? $r->other_share
+                            ?? $r->other_assets_value_thousand
+                            ?? $r->other_assets_thousand
+                            ?? $r->other_assets
+                            ?? $r->sonota_shisan_value_thousand
+                            ?? $r->sonota_shisan_thousand
+                            ?? $r->sonota_shisan,                        
                     ];
                     $prefillInheritance['other_credit'][$no] = $r->other_tax_credit_thousand;
                 }
@@ -424,6 +443,91 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
 
         // 課税価格 合計（所有財産 + 生前贈与加算合計）をここで確定
         $taxableTotalKyen = $basePropertyKyen + $sumLifetimeGiftKyen;
+        
+        /**
+         * ▼ 課税価格の内訳（金融資産 / その他の資産）
+         *
+         * - total 列は row_no=1（被相続人）系の保持値を最優先
+         * - 相続人列は
+         *     manual: isanbunkatu.blade の手入力値を優先
+         *     auto  : 民法上割合（civil_share）で按分
+         * - 値が取得できない場合は空欄のままにし、既存の SoT を壊さない
+         */
+        $baseFinancialKyen = $this->pickFirstInt([
+            Arr::get($payload, 'financial_assets_thousand'),
+            Arr::get($payload, 'financial_assets'),
+            Arr::get($prefillFamily, '1.financial_assets_thousand'),
+            Arr::get($prefillFamily, '1.financial_assets'),
+            Arr::get($prefillFamily, '1.kinyu_shisan_thousand'),
+            Arr::get($prefillFamily, '1.kinyu_shisan'),
+            Arr::get($prefillFamily, '1.cash_share_value_thousand'),
+            Arr::get($prefillFamily, '1.cash_share_thousand'),
+            Arr::get($prefillFamily, '1.cash_share'),
+            Arr::get($prefillFamily, '1.cash_value_thousand'),
+            Arr::get($prefillFamily, '1.cash_thousand'),
+            Arr::get($prefillFamily, '1.cash'),
+        ], 0);
+
+        $baseOtherKyen = $this->pickFirstInt([
+            Arr::get($payload, 'other_assets_thousand'),
+            Arr::get($payload, 'other_assets'),
+            Arr::get($prefillFamily, '1.other_assets_thousand'),
+            Arr::get($prefillFamily, '1.other_assets'),
+            Arr::get($prefillFamily, '1.sonota_shisan_thousand'),
+            Arr::get($prefillFamily, '1.sonota_shisan'),
+            Arr::get($prefillFamily, '1.other_share_value_thousand'),
+            Arr::get($prefillFamily, '1.other_share_thousand'),
+            Arr::get($prefillFamily, '1.other_share'),
+            Arr::get($prefillFamily, '1.other_value_thousand'),
+            Arr::get($prefillFamily, '1.other_thousand'),
+            Arr::get($prefillFamily, '1.other'),
+        ], 0);
+
+        $financialShareKByHeir = [];
+        $otherShareKByHeir     = [];
+        for ($no = 2; $no <= 10; $no++) {
+            $financialShareKByHeir[$no] = 0;
+            $otherShareKByHeir[$no]     = 0;
+        }
+
+        if ($methodCode === 9) {
+            for ($no = 2; $no <= 10; $no++) {
+                $member = $prefillInheritance['members'][$no] ?? [];
+
+                $financialShareKByHeir[$no] = $this->pickFirstInt([
+                    $member['cash_share'] ?? null,
+                    $member['cash_share_value_thousand'] ?? null,
+                    $member['cash_share_thousand'] ?? null,
+                    $member['financial_assets'] ?? null,
+                    $member['financial_assets_value_thousand'] ?? null,
+                    $member['financial_assets_thousand'] ?? null,
+                    $member['kinyu_shisan'] ?? null,
+                    $member['kinyu_shisan_value_thousand'] ?? null,
+                    $member['kinyu_shisan_thousand'] ?? null,
+                    $member['cash'] ?? null,
+                    $member['cash_value_thousand'] ?? null,
+                    $member['cash_thousand'] ?? null,
+                ], 0);
+
+                $otherShareKByHeir[$no] = $this->pickFirstInt([
+                    $member['other_share'] ?? null,
+                    $member['other_share_value_thousand'] ?? null,
+                    $member['other_share_thousand'] ?? null,
+                    $member['other_assets'] ?? null,
+                    $member['other_assets_value_thousand'] ?? null,
+                    $member['other_assets_thousand'] ?? null,
+                    $member['sonota_shisan'] ?? null,
+                    $member['sonota_shisan_value_thousand'] ?? null,
+                    $member['sonota_shisan_thousand'] ?? null,
+                    $member['other'] ?? null,
+                    $member['other_value_thousand'] ?? null,
+                    $member['other_thousand'] ?? null,
+                ], 0);
+            }
+        } else {
+            $financialShareKByHeir = $this->distributeKyenByCivilShares($baseFinancialKyen, $civilShareTargets);
+            $otherShareKByHeir     = $this->distributeKyenByCivilShares($baseOtherKyen, $civilShareTargets);
+        }
 
 
         // family テーブルから氏名を取得
@@ -633,12 +737,55 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
             $pdf->MultiCell($leftCalcValueW, 6, number_format((int) $value), $wakusen, 'R', 0, 0, $leftCalcValueX, $yPos);
         };
 
+ 
+        /**
+         * ▼ 座標マップ
+         *
+         * テンプレ差し替え後に上下位置を触る場合は、まずここだけ調整してください。
+         */
+        $leftCalcY = [
+            // 「課税価格の計算」表（行間を少し詰めた版）
+            'property_before'      => 57.0,
+            'property_after'       => 74.0,
+            'gift_add_calendar'    => 80.0,
+            'gift_add_settlement'  => 86.0,
+            'taxable_price'        => 92.0,
+        ];
+
+        $gridY = [
+            // 課税価格ブロック
+            // A3_05_pr_kakusouzoku.pdf の現物罫線中央に合わせた実測値
+            'financial_assets'         => 145.5, // ①
+            'other_assets'             => 152.1, // ②
+            'property_total'           => 158.5, // ③
+            'lifetime_gift'            => 165.0, // ④
+            'taxable_total'            => 171.5, // ⑤
+            'basic_deduction'          => 178.0, // ⑥
+            'taxable_estate'           => 184.5, // ⑦
+            'law_share'                => 191.0, // ⑧
+            'legal_tax'                => 197.6, // ⑨
+            'anbun_ratio'              => 204.1, // ⑩
+            'sanzutsu_tax'             => 210.6, // ⑪
+            'twowari'                  => 217.1, // ⑫
+            'calendar_gift_credit'     => 223.7, // ⑬
+            'spouse_relief'            => 230.2, // ⑭
+            'other_credit'             => 236.7, // ⑮
+            'credits_total'            => 243.2, // ⑯
+            'sashihiki_tax'            => 249.8, // ⑰
+            'settlement_gift_credit'   => 256.3, // ⑱
+            'subtotal'                 => 262.8, // ⑲
+            'payable_tax'              => 269.3, // ⑳
+            'refund_tax'               => 276.0, // ㉑
+            'ratio'                    => 273.8, // 最下段の割合表示
+        ];
+
+
         $pdf->SetFont('mspgothic03', '', 11);
-        $drawLeftCalcValue($propertyBeforeGiftKyen, 58.0);   // 所有財産の額(贈与前)
-        $drawLeftCalcValue($propertyAfterGiftKyen,  78.0);    // 相続財産の額(贈与後)
-        $drawLeftCalcValue($calendarGiftAddKyen,    84.0);      // 贈与加算累計額　暦年贈与
-        $drawLeftCalcValue($settlementGiftAddKyen,  91.0);    // 贈与加算累計額　精算贈与
-        $drawLeftCalcValue($taxablePriceCalcKyen,   97.3);     // 課税価格
+        $drawLeftCalcValue($propertyBeforeGiftKyen,     $leftCalcY['property_before']);     // 所有財産の額(贈与前)
+        $drawLeftCalcValue($propertyAfterGiftKyen,      $leftCalcY['property_after']);      // 相続財産の額(贈与後)
+        $drawLeftCalcValue($calendarGiftAddKyen,        $leftCalcY['gift_add_calendar']);   // 贈与加算累計額　暦年贈与
+        $drawLeftCalcValue($settlementGiftAddKyen,      $leftCalcY['gift_add_settlement']); // 贈与加算累計額　精算贈与
+        $drawLeftCalcValue($taxablePriceCalcKyen,       $leftCalcY['taxable_price']);       // 課税価格
 
 
         for ($no = 1; $no <= 10; $no++) {
@@ -672,10 +819,26 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
             $pdf->SetFont('mspgothic03', '', 12);
 
             if ($no === 1) {
-                // → 仕様変更：isanbunkatu.blade の「課税価格 合計（合計）」と同じく
-                //    「所有財産（合計）」＋「生前贈与加算（合計）」を表示する
+
+                if ($baseFinancialKyen > 0) {
+                    $pdf->MultiCell(28, 10, number_format($baseFinancialKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['financial_assets']);
+                }
+
+                if ($baseOtherKyen > 0) {
+                    $pdf->MultiCell(28, 10, number_format($baseOtherKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['other_assets']);
+                }
+
+                if ($basePropertyKyen > 0) {
+                    $pdf->MultiCell(28, 10, number_format($basePropertyKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['property_total']);
+                }
+
+                if ($sumLifetimeGiftKyen > 0) {
+                    $pdf->MultiCell(28, 10, number_format($sumLifetimeGiftKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['lifetime_gift']);
+                }
+
+
                 if ($taxableTotalKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($taxableTotalKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 13.2);
+                    $pdf->MultiCell(28, 10, number_format($taxableTotalKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['taxable_total']);
                 }
                 
                 // ▼ 基礎控除額（合計）を印字
@@ -696,18 +859,19 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                             0,
                             0,
                             $xx - 130,
-                            $yy + 20.0
+                            $gridY['basic_deduction'] + 0.5
                         );
                     }
 
                     $pdf->SetFont('mspgothic03', '', 12);
-                    $pdf->MultiCell(28, 10, number_format($basicDedKyen),$wakusen, 'R', 0, 0, $xx - 2.0 , $yy + 19.5);
+                    $pdf->MultiCell(28, 10, number_format($basicDedKyen),$wakusen, 'R', 0, 0, $xx - 2.0 , $gridY['basic_deduction']);
+                                     
                 }
                         
                 // 課税遺産総額をPDFに描画
                 if ($taxableEstate > 0) {
                     $pdf->SetFont('mspgothic03', '', 12);
-                    $pdf->MultiCell(28, 10, number_format($taxableEstate), $wakusen, 'R', 0, 0, $xx - 2.0 , $yy + 26.2);
+                    $pdf->MultiCell(28, 10, number_format($taxableEstate), $wakusen, 'R', 0, 0, $xx - 2.0 , $gridY['taxable_estate']);
                 }
 
 
@@ -717,7 +881,8 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 if ($sozokuTaxTotalKyen > 0) {
                     $pdf->SetFont('mspgothic03', '', 12);
                     // 「相続税の総額」行の合計欄
-                    $pdf->MultiCell(28, 10, number_format($sozokuTaxTotalKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 39.5);
+                    $pdf->MultiCell(28, 10, number_format($sozokuTaxTotalKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['legal_tax']);
+                                     
                 }
 
 
@@ -727,17 +892,18 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                  */
                 $pdf->SetFont('mspgothic03', '', 12);
                 // 「あん分割合」行の合計欄（相続税の総額の 1 行下）
-                $pdf->MultiCell(28, 10, '1.0000', $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 45.7);
+                $pdf->MultiCell(28, 10, '1.0000', $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['anbun_ratio']);                
 
                 // ▼ 算出税額 合計（= heirs[].sanzutsu_tax_yen の合計 / 1000）
                 if ($sumSanzutsuTotalKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($sumSanzutsuTotalKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 52.5);
+                    $pdf->MultiCell(28, 10, number_format($sumSanzutsuTotalKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['sanzutsu_tax']);                    
                 }
 
 
                 // ▼ ２割加算 合計（= Σ max(final_tax_yen − sanzutsu_tax_yen, 0) / 1000）
                 if ($twoWarSumKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($twoWarSumKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 59.0);
+                    $pdf->MultiCell(28, 10, number_format($twoWarSumKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['twowari']);
+                                     
                 }
 
 
@@ -745,56 +911,55 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 // ▼ 暦年課税分の贈与税額控除額（合計）
                 //   isanbunkatu.blade の「暦年課税分の贈与税額控除額」行（summary.total_gift_tax_credits）と同じ値（千円）
                 if ($totalGiftTaxCreditsKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($totalGiftTaxCreditsKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 65.4);
+                    $pdf->MultiCell(28, 10, number_format($totalGiftTaxCreditsKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['calendar_gift_credit']);
                 }
 
 
                 // ▼ 配偶者の税額軽減額（合計）
                 //   isanbunkatu.blade の「配偶者の税額軽減額」行（summary.total_spouse_relief）と同じ値（千円）
                 if ($totalSpouseReliefKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($totalSpouseReliefKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 72.0);
+                    $pdf->MultiCell(28, 10, number_format($totalSpouseReliefKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['spouse_relief']);
                 }
                 
 
                 // ▼ その他の税額控除額（合計）
                 //   isanbunkatu.blade の「その他の税額控除額」行（summary.total_other_credits）と同じ値（千円）
                 if ($totalOtherCreditsKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($totalOtherCreditsKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 78.4);
+                    $pdf->MultiCell(28, 10, number_format($totalOtherCreditsKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['other_credit']);                    
                 }
 
 
                 // ▼ 控除税額合計（合計）
                 //   isanbunkatu.blade の「控除税額合計」行（暦年＋配偶者＋その他）の合計欄に対応
                 if ($totalCreditsAllKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($totalCreditsAllKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 85.1);
+                    $pdf->MultiCell(28, 10, number_format($totalCreditsAllKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['credits_total']);                    
                 }
-            
 
                 // ▼ 差引税額（合計）
                 //   isanbunkatu.blade の「差引税額」行（summary.total_sashihiki_tax）と同じ値（千円）
                 if ($totalSashihikiTaxKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($totalSashihikiTaxKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 91.6);
+                    $pdf->MultiCell(28, 10, number_format($totalSashihikiTaxKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['sashihiki_tax']);
                 }
 
 
                 // ▼ 相続時精算課税分の贈与税額控除額（合計）
                 //   （isanbunkatu.blade の「相続時精算課税分の贈与税額控除額」行・合計欄）
                 if ($totalSettlementGiftKyen !== 0) {
-                    $pdf->MultiCell(28, 10, number_format($totalSettlementGiftKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 98.3);
+                    $pdf->MultiCell(28, 10, number_format($totalSettlementGiftKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['settlement_gift_credit']);
                 }
 
 
                 // ▼ 小計（合計）
                 //   isanbunkatu.blade の「小計」行（summary.total_final_after_settlement）と同じ値（千円）
                 if ($totalFinalAfterSettlementKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($totalFinalAfterSettlementKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 104.9);
+                    $pdf->MultiCell(28, 10, number_format($totalFinalAfterSettlementKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['subtotal']);
                 }
 
 
                 // ▼ 納付税額（合計）
                 //   isanbunkatu.blade の「納付税額」行・合計欄に対応
                 if ($sumPayableKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($sumPayableKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 111.5);
+                    $pdf->MultiCell(28, 10, number_format($sumPayableKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['payable_tax']);
                 }
 
 
@@ -802,14 +967,14 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 // ▼ 還付税額（合計）
                 //   isanbunkatu.blade の「還付税額」行・合計欄に対応
                 if ($sumRefundKyen !== 0) {
-                    $pdf->MultiCell(28, 10, number_format($sumRefundKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $yy + 118.1);
+                    $pdf->MultiCell(28, 10, number_format($sumRefundKyen), $wakusen, 'R', 0, 0, $xx - 2.0, $gridY['refund_tax']);
                 }
 
 
                 // 合計列の割合 ＝ 納付税額合計 / 課税価格合計 × 100
                 if ($sumPayableKyen > 0 && $taxableTotalKyen > 0) {
                     $wari = ($sumPayableKyen / $taxableTotalKyen) * 100;
-                    $pdf->MultiCell(28, 10, number_format($wari, 2) . '％', $wakusen, 'R', 0, 0, $xx, $yy + 124.0);
+                    $pdf->MultiCell(28, 10, number_format($wari, 2) . '％', $wakusen, 'R', 0, 0, $xx, $gridY['ratio']);
                 }
 
             }
@@ -819,11 +984,19 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                         
                 $member = $prefillInheritance['members'][$no] ?? [];
 
+                $heirFinancialKyen = (int)($financialShareKByHeir[$no] ?? 0);
+                $heirOtherKyen     = (int)($otherShareKByHeir[$no] ?? 0);
+
                 // ▼ 所有財産（千円）
                 if ($methodCode === 9) {
                     $heirPropertyKyen = (int)($member['taxable_manu'] ?? $member['taxable_auto'] ?? 0);
                 } else {                    
                     $heirPropertyKyen = (int)($propertyShareKByHeir[$no] ?? 0);
+                }
+
+                // 課税価格内訳が取れている場合はその合計を優先
+                if (($heirFinancialKyen + $heirOtherKyen) > 0) {
+                    $heirPropertyKyen = $heirFinancialKyen + $heirOtherKyen;
                 }
 
                 // 生前贈与加算（千円）…isanbunkatu.blade の $heirsByIdx[$no]['lifetime_gift_addition'] 相当
@@ -833,13 +1006,26 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 $heirTaxableTotalKyen = $heirPropertyKyen + $heirLifetimeGiftKyen;
                 $heirTaxablePrice[$no] = $heirTaxableTotalKyen;
 
-                $val = $heirTaxableTotalKyen > 0
-                    ? number_format($heirTaxableTotalKyen)
-                    : '';
-                if ($heirTaxableTotalKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirTaxableTotalKyen), $wakusen, 'R', 0, 0, $xx, $yy + 13.2);
+                if ($heirFinancialKyen > 0) {
+                    $pdf->MultiCell(28, 10, number_format($heirFinancialKyen), $wakusen, 'R', 0, 0, $xx, $gridY['financial_assets']);
                 }
 
+                if ($heirOtherKyen > 0) {
+                    $pdf->MultiCell(28, 10, number_format($heirOtherKyen), $wakusen, 'R', 0, 0, $xx, $gridY['other_assets']);
+                }
+
+                if ($heirPropertyKyen > 0) {
+                    $pdf->MultiCell(28, 10, number_format($heirPropertyKyen), $wakusen, 'R', 0, 0, $xx, $gridY['property_total']);
+                }
+
+                if ($heirLifetimeGiftKyen > 0) {
+                    $pdf->MultiCell(28, 10, number_format($heirLifetimeGiftKyen), $wakusen, 'R', 0, 0, $xx, $gridY['lifetime_gift']);
+                }
+
+                if ($heirTaxableTotalKyen > 0) {
+                    $pdf->MultiCell(28, 10, number_format($heirTaxableTotalKyen), $wakusen, 'R', 0, 0, $xx, $gridY['taxable_total']);
+                }
+                 
 
                 // 課税遺産総額（相続人別）
                 if ($methodCode === 9) {
@@ -853,7 +1039,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
 
                 // 課税遺産総額（相続人ごと・千円）をPDFに描画
                 if ($heirTaxableEstateKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirTaxableEstateKyen), $wakusen, 'R', 0, 0, $xx, $yy + 26.2);
+                    $pdf->MultiCell(28, 10, number_format($heirTaxableEstateKyen), $wakusen, 'R', 0, 0, $xx, $gridY['taxable_estate']);
                 }
 
 //dd($prefillFamily);
@@ -907,7 +1093,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
  
 
                  if ($lawShareVal !== '') {
-                     $pdf->MultiCell(28, 10, $lawShareVal, $wakusen, 'C', 0, 0, $xx + 2.0, $yy + 32.5);
+                    $pdf->MultiCell(28, 10, $lawShareVal, $wakusen, 'C', 0, 0, $xx + 2.0, $gridY['law_share']);
                  }
                  
 
@@ -923,7 +1109,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 }
 
                 if ($heirSozokuTaxKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirSozokuTaxKyen), $wakusen, 'R', 0, 0, $xx, $yy + 39.5);
+                    $pdf->MultiCell(28, 10, number_format($heirSozokuTaxKyen), $wakusen, 'R', 0, 0, $xx, $gridY['legal_tax']);
                 }
 
 
@@ -936,7 +1122,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 $heirAnbunRatio = $heirsByIdx[$no]['anbun_ratio'] ?? null;
                 if ($heirAnbunRatio !== null && $heirTaxableTotalKyen > 0) {
                     $ratioStr = number_format((float) $heirAnbunRatio, 4, '.', '');
-                    $pdf->MultiCell(28, 10, $ratioStr, $wakusen, 'R', 0, 0, $xx, $yy + 45.7);
+                    $pdf->MultiCell(28, 10, $ratioStr, $wakusen, 'R', 0, 0, $xx, $gridY['anbun_ratio']);
                 }
 
                 $heirSanzutsuKyen = 0;
@@ -947,7 +1133,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
 
                 // ▼ 算出税額（相続人別）…isanbunkatu.blade の「算出税額」行に対応
                 if ($heirSanzutsuKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirSanzutsuKyen), $wakusen, 'R', 0, 0, $xx, $yy + 52.5);
+                    $pdf->MultiCell(28, 10, number_format($heirSanzutsuKyen), $wakusen, 'R', 0, 0, $xx, $gridY['sanzutsu_tax']);
                 }
 
                 /**
@@ -964,7 +1150,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 }
 
                 if ($heirTwoWarKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirTwoWarKyen), $wakusen, 'R', 0, 0, $xx, $yy + 59.0);
+                    $pdf->MultiCell(28, 10, number_format($heirTwoWarKyen), $wakusen, 'R', 0, 0, $xx, $gridY['twowari']);
                 }
 
 
@@ -978,10 +1164,11 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 $heirGiftCreditCalKyen = 0;
                 if (isset($heirsByIdx[$no]['gift_tax_credit_calendar_yen'])) {
                     $heirGiftCreditCalKyen = (int) round(((int) $heirsByIdx[$no]['gift_tax_credit_calendar_yen']) / 1000);
+                                     
                 }
 
                 if ($heirGiftCreditCalKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirGiftCreditCalKyen), $wakusen, 'R', 0, 0, $xx, $yy + 65.4);
+                    $pdf->MultiCell(28, 10, number_format($heirGiftCreditCalKyen), $wakusen, 'R', 0, 0, $xx, $gridY['calendar_gift_credit']);
                 }
 
                 /**
@@ -996,7 +1183,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 }
 
                 if ($heirSpouseReliefKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirSpouseReliefKyen), $wakusen, 'R', 0, 0, $xx, $yy + 72.0);
+                    $pdf->MultiCell(28, 10, number_format($heirSpouseReliefKyen), $wakusen, 'R', 0, 0, $xx, $gridY['spouse_relief']);
                 }
 
 
@@ -1012,7 +1199,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 }
 
                 if ($heirOtherCreditKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirOtherCreditKyen), $wakusen, 'R', 0, 0, $xx, $yy + 78.4);
+                    $pdf->MultiCell(28, 10, number_format($heirOtherCreditKyen), $wakusen, 'R', 0, 0, $xx, $gridY['other_credit']);
                 }
 
 
@@ -1028,7 +1215,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                     + $heirOtherCreditKyen;
 
                 if ($heirTotalCreditsKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirTotalCreditsKyen), $wakusen, 'R', 0, 0, $xx, $yy + 85.1);
+                    $pdf->MultiCell(28, 10, number_format($heirTotalCreditsKyen), $wakusen, 'R', 0, 0, $xx, $gridY['credits_total']);
                 }
 
                 /**
@@ -1042,7 +1229,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 }
 
                 if ($heirSashihikiKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirSashihikiKyen), $wakusen, 'R', 0, 0, $xx, $yy + 91.6);
+                    $pdf->MultiCell(28, 10, number_format($heirSashihikiKyen), $wakusen, 'R', 0, 0, $xx, $gridY['sashihiki_tax']);
                 }
 
 
@@ -1057,7 +1244,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 }
 
                 if ($heirSettlementGiftKyen !== 0) {                    
-                    $pdf->MultiCell(28, 10, number_format($heirSettlementGiftKyen), $wakusen, 'R', 0, 0, $xx, $yy + 98.3);
+                    $pdf->MultiCell(28, 10, number_format($heirSettlementGiftKyen), $wakusen, 'R', 0, 0, $xx, $gridY['settlement_gift_credit']);
                 }
 
 
@@ -1080,7 +1267,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
 
 
                 if ($heirFinalAfterSettlementYen !== 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirFinalAfterSettlementKyen), $wakusen, 'R', 0, 0, $xx, $yy + 104.9);
+                    $pdf->MultiCell(28, 10, number_format($heirFinalAfterSettlementKyen), $wakusen, 'R', 0, 0, $xx, $gridY['subtotal']);
                 }
  
  
@@ -1098,7 +1285,7 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 }
 
                 if ($heirPayableKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirPayableKyen), $wakusen, 'R', 0, 0, $xx, $yy + 111.5);
+                    $pdf->MultiCell(28, 10, number_format($heirPayableKyen), $wakusen, 'R', 0, 0, $xx, $gridY['payable_tax']);
                 }
 
 
@@ -1114,13 +1301,13 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                 }
 
                 if ($heirRefundKyen > 0) {
-                    $pdf->MultiCell(28, 10, number_format($heirRefundKyen), $wakusen, 'R', 0, 0, $xx, $yy + 118.1);
+                    $pdf->MultiCell(28, 10, number_format($heirRefundKyen), $wakusen, 'R', 0, 0, $xx, $gridY['refund_tax']);
                 }
 
                 // 合計列の割合 ＝ 納付税額合計 / 課税価格合計 × 100
                 if ($heirPayableKyen > 0 && $heirTaxableTotalKyen > 0) {
                     $wari = $heirPayableKyen / $heirTaxableTotalKyen * 100;
-                    $pdf->MultiCell(28, 10, number_format($wari, 2) . '％', $wakusen, 'R', 0, 0, $xx, $yy + 124.0);
+                    $pdf->MultiCell(28, 10, number_format($wari, 2) . '％', $wakusen, 'R', 0, 0, $xx, $gridY['ratio']);
                 }
 
 
@@ -1131,6 +1318,76 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
 
         }
     }
+
+
+    private function pickFirstInt(array $candidates, int $default = 0): int
+    {
+        foreach ($candidates as $candidate) {
+            if ($candidate === null || $candidate === '') {
+                continue;
+            }
+
+            if (is_numeric($candidate)) {
+                return (int) round((float) $candidate);
+            }
+
+            $normalized = preg_replace('/[^\d\-]/u', '', (string) $candidate);
+            if ($normalized === '' || $normalized === null) {
+                continue;
+            }
+
+            if (is_numeric($normalized)) {
+                return (int) $normalized;
+            }
+        }
+
+        return $default;
+    }
+
+    /**
+     * 民法上割合（civil_share）で千円金額を按分する
+     *
+     * @param array<int, array{bunsi:int, bunbo:int}> $civilShareTargets
+     * @return array<int, int>
+     */
+    private function distributeKyenByCivilShares(int $baseKyen, array $civilShareTargets): array
+    {
+        $result = [];
+        for ($no = 2; $no <= 10; $no++) {
+            $result[$no] = 0;
+        }
+
+        if ($baseKyen <= 0 || empty($civilShareTargets)) {
+            return $result;
+        }
+
+        $sumShares = 0;
+        $lastNo = null;
+
+        foreach ($civilShareTargets as $no => $share) {
+            $bunsi = (int)($share['bunsi'] ?? 0);
+            $bunbo = (int)($share['bunbo'] ?? 0);
+            if ($bunsi <= 0 || $bunbo <= 0) {
+                continue;
+            }
+
+            $shareKyen = (int) round($baseKyen * ($bunsi / $bunbo));
+            $result[$no] = $shareKyen;
+            $sumShares += $shareKyen;
+
+            if ($shareKyen > 0) {
+                $lastNo = $no;
+            }
+        }
+
+        $diff = $baseKyen - $sumShares;
+        if ($diff !== 0 && $lastNo !== null) {
+            $result[$lastNo] = (int)($result[$lastNo] ?? 0) + $diff;
+        }
+
+        return $result;
+    }
+
 
 
  

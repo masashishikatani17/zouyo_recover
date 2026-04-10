@@ -40,27 +40,44 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         $family = $payload['family'] ?? [];
 
         // ▼ 家族表の描画
-        $startX    = 45;
-        $startY    = 54.5;
+        $startY    = 54.35;
         $rowHeight = 5.78;
 
+        // 新しい家族構成表テンプレートの罫線位置に合わせた座標
         $colX = [
-            'no'           => $startX,
-            'name'         => $startX + 8,
-            'gender'       => $startX + 38,
-            'rel'          => $startX + 49,
-            'yousi'        => $startX + 70,
-            'souzoku'      => $startX + 95,
-            'civil_share'  => $startX + 112,
-            'houtei_share' => $startX + 128,
-            'birth_year'   => $startX + 144,
-            'birth_month'  => $startX + 151,
-            'birth_day'    => $startX + 158.5,
-            'age'          => $startX + 183.5,
-            'cash'         => $startX + 191,
-            'prop'         => $startX + 227,
-            'ksum'         => $startX + 263,
+            'name'         => 53.6,
+            'gender'       => 82.9,
+            'rel'          => 94.4,
+            'yousi'        => 115.8,
+            'souzoku'      => 140.1,
+            'civil_share'  => 168.5,
+            'houtei_share' => 184.7,            
+            'birth_year'   => 201.8,
+            'birth_month'  => 211.6,
+            'birth_day'    => 219.3,
+            'age'          => 229.6,
+            'cash'         => 244.6,
+            'prop'         => 280.4,
+            'ksum'         => 316.6,
         ];
+
+        $colW = [
+            'name'         => 28.0,
+            'gender'       => 10.2,
+            'rel'          => 20.5,
+            'yousi'        => 23.0,
+            'souzoku'      => 26.7,
+            'civil_share'  => 15.5,
+            'houtei_share' => 15.5,            
+            'birth_year'   => 12.0,
+            'birth_month'  => 9.4,
+            'birth_day'    => 9.4,
+            'age'          => 12.0,
+            'cash'         => 33.8,
+            'prop'         => 34.0,
+            'ksum'         => 34.0,
+        ];
+
 
         $relationships = config('relationships');
 
@@ -106,12 +123,13 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
 
             $x = $colX['name'];
             $y = $startY + ($i - 1) * $rowHeight;
-            $pdf->MultiCell(28, 10, $name, $wakusen, 'L', 0, 0, $x, $y);            
-            
+            $pdf->MultiCell($colW['name'], 10, $name, $wakusen, 'L', 0, 0, $x, $y);
+
 
             if ($hasName) {
                 $x = $colX['gender'];
-                $pdf->MultiCell(10, 10, (string)($row['gender'] ?? ''), $wakusen, 'C', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['gender'], 10, (string)($row['gender'] ?? ''), $wakusen, 'C', 0, 0, $x, $y);
+                
             }
 
 
@@ -123,29 +141,45 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
                     : '';
                 $relFontSize = $this->resolveRelationshipFontSize($relLabel);
                 $pdf->SetFont('mspgothic03', '', $relFontSize);
-                $pdf->MultiCell(22, 10, $relLabel, $wakusen, 'L', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['rel'], 10, $relLabel, $wakusen, 'L', 0, 0, $x, $y);
                 $pdf->SetFont('mspgothic03', '', 9);
              }
              
 
             if ($hasName) {
                 $x = $colX['yousi'];
-                $pdf->MultiCell(20, 10, (string)($row['yousi'] ?? ''), $wakusen, 'L', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['yousi'], 10, (string)($row['yousi'] ?? ''), $wakusen, 'L', 0, 0, $x, $y);
             }
 
 
             if ($hasName) {
                 $x = $colX['souzoku'];
-                $pdf->MultiCell(30, 10, (string)($row['souzokunin'] ?? ''), $wakusen, 'L', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['souzoku'], 10, (string)($row['souzokunin'] ?? ''), $wakusen, 'L', 0, 0, $x, $y);
             }
 
 
 
-            if ($hasName && (($row['bunsi'] ?? null) !== null)) {                
-                
+            // 民法上の法定相続割合（FamilyPageService と同様）
+            if ($hasName && (($row['civil_share_bunsi'] ?? null) !== null)) {
+                $x = $colX['civil_share'];
+                $pdf->MultiCell(
+                    $colW['civil_share'],
+                    10,
+                    (string)($row['civil_share_bunsi'] ?? '') . '/' . (string)($row['civil_share_bunbo'] ?? ''),
+                    $wakusen,
+                    'C',
+                    0,
+                    0,
+                    $x,
+                    $y
+                );
+            }
+
+            // 税法上の法定相続割合
+            if ($hasName && (($row['bunsi'] ?? null) !== null)) {
                 $x = $colX['houtei_share'];
                 $pdf->MultiCell(
-                    20,
+                    $colW['houtei_share'],
                     10,
                     (string)($row['bunsi'] ?? '') . '/' . (string)($row['bunbo'] ?? ''),
                     $wakusen,
@@ -160,43 +194,43 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
 
             if ($hasName && (($row['birth_year'] ?? null) !== null)) {
                 $x = $colX['birth_year'];
-                $pdf->MultiCell(20, 10, (string)($row['birth_year'] ?? '') . '年', $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['birth_year'], 10, (string)($row['birth_year'] ?? '') . '年', $wakusen, 'R', 0, 0, $x, $y);
             }
 
 
             if ($hasName && (($row['birth_month'] ?? null) !== null)) {
                 $x = $colX['birth_month'];
-                $pdf->MultiCell(20, 10, (string)($row['birth_month'] ?? '') . '月', $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['birth_month'], 10, (string)($row['birth_month'] ?? '') . '月', $wakusen, 'R', 0, 0, $x, $y);
             }
 
 
             if ($hasName && (($row['birth_day'] ?? null) !== null)) {
                 $x = $colX['birth_day'];
-                $pdf->MultiCell(20, 10, (string)($row['birth_day'] ?? '') . '日', $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['birth_day'], 10, (string)($row['birth_day'] ?? '') . '日', $wakusen, 'R', 0, 0, $x, $y);
             }
 
             $age = $row['age'] ?? null;
             if ($hasName && $age !== null) {
                 $x = $colX['age'];
-                $pdf->MultiCell(10, 10, (string)$age . '歳', $wakusen, 'L', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['age'], 10, (string)$age . '歳', $wakusen, 'R', 0, 0, $x, $y);
             }
 
             $cash = $row['cash'] ?? null;
             if ($hasName && $cash !== null) {
                 $x = $colX['cash'];
-                $pdf->MultiCell(30, 10, number_format((int)$cash), $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['cash'], 10, number_format((int)$cash) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
             }
 
             $prop = ($row['property'] ?? 0) - ($row['cash'] ?? 0);
             if ($hasName && $prop !== null) {
                 $x = $colX['prop'];
-                $pdf->MultiCell(30, 10, number_format((int)$prop), $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['prop'], 10, number_format((int)$prop) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
             }
 
             $ksum = ($row['property'] ?? 0);
             if ($hasName && $prop !== null) {                
                 $x = $colX['ksum'];
-                $pdf->MultiCell(30, 10, number_format((int)$ksum), $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['ksum'], 10, number_format((int)$ksum) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
             }
         }
 
@@ -212,17 +246,17 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
 
             if ($totalCash !== null) {
                 $x = $colX['cash'];
-                $pdf->MultiCell(30, 10, number_format((int)$totalCash), $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['cash'], 10, number_format((int)$totalCash) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
             }
 
             if ($totalProp !== null) {
                 $x = $colX['prop'];
-                $pdf->MultiCell(30, 10, number_format((int)$totalProp), $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['prop'], 10, number_format((int)$totalProp) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
             }
 
             if ($totaksum !== null) {
                 $x = $colX['ksum'];
-                $pdf->MultiCell(30, 10, number_format((int)$totaksum), $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell($colW['ksum'], 10, number_format((int)$totaksum) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
             }
         }
 
