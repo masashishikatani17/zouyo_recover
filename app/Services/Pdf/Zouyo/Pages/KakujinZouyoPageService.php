@@ -271,10 +271,20 @@ class KakujinZouyoPageService implements ZouyoPdfPageInterface
         // ▼ 過年度分（暦年贈与）の印字
         //
         //  - PastGiftCalendarEntry から受贈者ごとに年別集計
-        //  - 2021年以前は 1 行にまとめて「過年度合計（〜2021年）」として表示
-        //  - 2022 / 2023 / 2024 年はそれぞれ 1 行ずつ表示
+        //  - 表示する3年は固定 2022/2023/2024 ではなく、
+        //    「相続開始年の直前3年」= deathYear-3, deathYear-2, deathYear-1
+        //    例: 相続開始年が 2026 年なら 2023 / 2024 / 2025
+        //  - それより前は 1 行にまとめて「過年度合計」として表示
         /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+        $deathYear = $this->resolveDisplayDeathYear($payload, $dataId);
+        $pastDisplayYears = [
+            $deathYear - 3,
+            $deathYear - 2,
+            $deathYear - 1,
+        ];
+
+        $pastAggregateBeforeYear = $pastDisplayYears[0];
         // 過年度分（暦年贈与）の印字処理を行う前に PastGiftCalendarEntry のデータを取得
         $pastRows = PastGiftCalendarEntry::query()
             ->where('data_id', $dataId)
@@ -353,25 +363,25 @@ class KakujinZouyoPageService implements ZouyoPdfPageInterface
                 'set_cum'       => 262.0,
             ];
     
-        // 2022 年より前を「過年度合計」としてまとめる
-        // 2022以前の合計値も 0 を印字する
+
+        // 表示対象3年より前を「過年度合計」としてまとめる
         $before2022Z    = $before2022K    = $before2022T    = 0; // 暦年
         $before2022SetZ = $before2022SetK = 0;                   // 精算課税
         foreach ($zoyoByYear as $year => $z) {
-            if ($year < 2022) {
+            if ($year < $pastAggregateBeforeYear) {
                 $before2022Z += $z;
                 $before2022K += ($kojoByYear[$year] ?? 0);
                 $before2022T += ($taxByYear[$year] ?? 0);
             }
         }
         foreach ($seisanZoyoByYear as $year => $z) {
-            if ($year < 2022) {
+            if ($year < $pastAggregateBeforeYear) {
                 $before2022SetZ += $z;
                 $before2022SetK += ($seisanTaxByYear[$year] ?? 0);
             }
         }
 
-        // 2022以前 のみ独立行として表示
+        // 表示対象3年より前の合計行を表示
         $yBase = 58.0;      // 表示開始 Y 座標（テンプレに合わせて微調整）
         $lineH = 4.5;       // 行高さ
         $rowIdx = 0;
@@ -435,8 +445,9 @@ class KakujinZouyoPageService implements ZouyoPdfPageInterface
         $sumCalTax = 0;
 
 
-        // 次に 2022 / 2023 / 2024 年を年別に出力
-        foreach ([2022, 2023, 2024] as $year) {
+
+        // 次に「相続開始年の直前3年」を年別に出力
+        foreach ($pastDisplayYears as $year) {
             $zYear = $zoyoByYear[$year] ?? 0;
             $basicYear = $kojoByYear[$year] ?? 0;
             $kYear     = $taxByYear[$year] ?? 0;
@@ -908,6 +919,54 @@ $futureSetTaxK = (int) $futureSetTaxRows->sum(function ($row) use ($toInt) {
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+
+    /**
+     * 過年度表示用の相続開始年を解決する。
+     *
+     * 優先順位:
+     *  1) payload.header_year
+     *  2) payload.header['year']
+     *  3) ProposalHeader.proposal_year
+     *  4) ProposalHeader.proposal_date の年
+     *  5) 当年
+     */
+    private function resolveDisplayDeathYear(array $payload, int $dataId): int
+    {
+        $candidates = [
+            $payload['header_year'] ?? null,
+            $payload['header']['year'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $year = (int)preg_replace('/[^\d]/', '', (string)$candidate);
+            if ($year >= 1900) {
+                return $year;
+            }
+        }
+
+        $header = ProposalHeader::query()
+            ->where('data_id', $dataId)
+            ->first();
+
+        if ($header) {
+            $proposalYear = (int)preg_replace('/[^\d]/', '', (string)($header->proposal_year ?? ''));
+            if ($proposalYear >= 1900) {
+                return $proposalYear;
+            }
+
+            $proposalDate = (string)($header->proposal_date ?? '');
+            if ($proposalDate !== '') {
+                try {
+                    return (int)(new \DateTimeImmutable($proposalDate))->format('Y');
+                } catch (\Throwable $e) {
+                    // no-op
+                }
+            }
+        }
+
+        return (int)date('Y');
     }
 
 

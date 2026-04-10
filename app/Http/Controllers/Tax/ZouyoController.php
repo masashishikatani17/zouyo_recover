@@ -16,6 +16,7 @@ use App\Models\PastGiftSettlementEntry;
 
 // ★ Eloquent の Data モデルを明示インポート
 use App\Models\Data;
+use App\Models\Guest;
 
 // ★ 追加：$stored を取得するため
 use App\Models\ZouyoInput;          
@@ -37,7 +38,6 @@ use App\Services\ZouyotaxCalc;
 use Illuminate\Http\JsonResponse;
 
 use App\Http\Requests\ZouyoSyoriRequest;
-use App\Services\ZouyoMasterService;
 
 
 use App\Models\ProposalFamilyMember;
@@ -2699,90 +2699,78 @@ if ($i == 1){
 
     }
 
-    public function shotokuMaster(Request $request, ZouyoMasterService $masterService)
+    public function shotokuMaster(Request $request)    
     {
         $data = $this->resolveCompanyScopedDataOrFail($request);
-        $companyId = $request->user()?->company_id;
-        
+
         return view('zouyo.master.shotoku_master', [
             'dataId' => $data->id,
-            'rates' => $this->getShotokuMasterRates($masterService, $companyId),            
+            'rates' => $this->getShotokuMasterRates(),            
         ]);
     }
 
-    public function juminMaster(Request $request, ZouyoMasterService $masterService)
+    public function juminMaster(Request $request)    
     {
         $data = $this->resolveCompanyScopedDataOrFail($request);
-        $companyId = $request->user()?->company_id;
-        
+
         return view('zouyo.master.jumin_master', [
             'dataId' => $data->id,
-            'rates' => $this->getJuminMasterRates($masterService, $companyId),            
+            'rates' => $this->getJuminMasterRates(),
         ]);
     }
 
-    public function tokureiMaster(Request $request, ZouyoMasterService $masterService)
+    public function tokureiMaster(Request $request, $masterService)
     {
         $data = $this->resolveCompanyScopedDataOrFail($request);
-        $companyId = $request->user()?->company_id;
-        
+
         return view('zouyo.master.tokurei_master', [
             'dataId' => $data->id,
-            'rates' => $this->getTokureiMasterRates($masterService, $companyId),            
+            'rates' => $this->getTokureiMasterRates(),            
         ]);
     }
 
-    public function shinkokutokureiMaster(Request $request, ZouyoMasterService $masterService)
+    public function shinkokutokureiMaster(Request $request, $masterService)
     {
         $data = $this->resolveCompanyScopedDataOrFail($request);
-        $companyId = $request->user()?->company_id;
         
         return view('zouyo.master.shinkokutokurei_master', [
             'dataId' => $data->id,
-            'rates' => $this->getShinkokutokureiMasterRates($masterService, $companyId),            
+            'rates' => $this->getShinkokutokureiMasterRates(),            
         ]);
     }
 
 
 
     /**
-     * 単票マスター(id=1固定)対応の新メソッドが Service 側に実装されたらそれを優先。
-     * 未実装の間は既存の年指定メソッドへフォールバックする。
+     * ZouyoMasterService は存在しないため、まずは依存を外す。
+     * 後続で、実際の贈与税マスター取得ロジックへ置き換える。
      */
-    private function getShotokuMasterRates(ZouyoMasterService $masterService, ?int $companyId): array
+    private function getShotokuMasterRates(): array
     {
-        if (method_exists($masterService, 'getShotokuMasterRows')) {
-            return (array) $masterService->getShotokuMasterRows($companyId);
-        }
 
-        return (array) $masterService->getShotokuRates(self::MASTER_KIHU_YEAR, $companyId);
+        return [];
+
     }
 
-    private function getJuminMasterRates(ZouyoMasterService $masterService, ?int $companyId): array
+    private function getJuminMasterRates(): array
     {
-        if (method_exists($masterService, 'getJuminMasterRows')) {
-            return (array) $masterService->getJuminMasterRows($companyId);
-        }
 
-        return (array) $masterService->getJuminRates(self::MASTER_KIHU_YEAR, $companyId);
+        return [];
+
     }
 
-    private function getTokureiMasterRates(ZouyoMasterService $masterService, ?int $companyId): array
+    private function getTokureiMasterRates(): array
     {
-        if (method_exists($masterService, 'getTokureiMasterRows')) {
-            return (array) $masterService->getTokureiMasterRows($companyId);
-        }
 
-        return (array) $masterService->getTokureiRates(self::MASTER_KIHU_YEAR, $companyId);
+        return [];
+
     }
 
-    private function getShinkokutokureiMasterRates(ZouyoMasterService $masterService, ?int $companyId): array
+    private function getShinkokutokureiMasterRates(): array
     {
-        if (method_exists($masterService, 'getShinkokutokureiMasterRows')) {
-            return (array) $masterService->getShinkokutokureiMasterRows($companyId);
-        }
 
-        return (array) $masterService->getShinkokutokureiRates(self::MASTER_KIHU_YEAR, $companyId);
+        return [];
+
     }
 
 

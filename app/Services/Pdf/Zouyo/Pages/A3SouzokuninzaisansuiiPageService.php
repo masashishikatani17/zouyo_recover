@@ -81,12 +81,22 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
         $tplId = $pdf->importPage(1);
 
         $birthByRow = [];
+        $inputAgeByRow = [];
         foreach ($familyRows as $rowNo => $row) {
             $birthByRow[$rowNo] = [
                 'year'  => $row->birth_year  !== null ? (int)$row->birth_year  : null,
                 'month' => $row->birth_month !== null ? (int)$row->birth_month : null,
                 'day'   => $row->birth_day   !== null ? (int)$row->birth_day   : null,
             ];
+
+            $rawAge = $row->age ?? null;
+            if ($rawAge === null || $rawAge === '') {
+                $inputAgeByRow[$rowNo] = null;
+            } else {
+                $age = (int)preg_replace('/[^\d\-]/', '', (string)$rawAge);
+                $inputAgeByRow[$rowNo] = ($age >= 0 && $age <= 130) ? $age : null;
+            }
+
         }
 
         $resultsData = (array)($payload['resultsData'] ?? []);
@@ -166,6 +176,7 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
                     $info,
                     $relationships,
                     $birthByRow,
+                    $inputAgeByRow,                    
                     $resultsData,
                     $familyPayload,
                     $headerPayload
@@ -180,6 +191,7 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
         array $info,
         array $relationships,
         array $birthByRow,
+        array $inputAgeByRow,   
         array $resultsData,
         array $prefillFamily,
         array $prefillHeader        
@@ -209,7 +221,11 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
         $pdf->SetFont('mspgothic03', '', 7.0);
 
         $birth = $birthByRow[$recipientNo] ?? ['year' => null, 'month' => null, 'day' => null];
-        $age0  = $this->calcAgeAtJan1($birth['year'], $birth['month'], $birth['day'], 2025);
+        $inputAge = $inputAgeByRow[$recipientNo] ?? null;
+        $age0 = $inputAge !== null
+            ? (int)$inputAge
+            : $this->calcAgeAtJan1($birth['year'], $birth['month'], $birth['day'], 2025);
+        
 
         for ($i = 0; $i <= 20; $i++) {
             $x = $colStartX + ($colWidth * $i);

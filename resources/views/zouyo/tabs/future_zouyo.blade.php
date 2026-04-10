@@ -324,10 +324,32 @@
 
 
 @php
-    $giftBasicDeductionYear = (int) old('future_base_year', $prefillFuture['header']['year'] ?? 2026);
-    $giftBasicDeductionYen = app(\App\Services\Zouyo\ZouyoGeneralRateResolver::class)
+    $futureBaseYearValue = old('future_base_year', $prefillFuture['header']['year'] ?? '');
+    $giftBasicDeductionYear = (int) ($futureBaseYearValue !== '' ? $futureBaseYearValue : ($prefillFuture['header']['year'] ?? 2026));
+
+    $giftBasicDeductionResolver = app(\App\Services\Zouyo\ZouyoGeneralRateResolver::class);
+    $giftBasicDeductionYen = $giftBasicDeductionResolver
         ->getBasicDeductionYen(auth()->user()?->company_id, $giftBasicDeductionYear);
     $giftBasicDeductionK = (int) round($giftBasicDeductionYen / 1000);
+
+    $giftBasicDeductionByYearK = [];
+    $giftBasicDeductionYears = \App\Models\ZouyoGeneralRate::whereNull('company_id')
+        ->select('kihu_year')
+        ->distinct()
+        ->orderBy('kihu_year')
+        ->pluck('kihu_year')
+        ->map(fn ($y) => (int) $y)
+        ->all();
+
+    if (empty($giftBasicDeductionYears)) {
+        $giftBasicDeductionYears = [$giftBasicDeductionYear];
+    }
+
+    foreach ($giftBasicDeductionYears as $giftYear) {
+        $giftBasicDeductionByYearK[$giftYear] = (int) round(
+            $giftBasicDeductionResolver->getBasicDeductionYen(auth()->user()?->company_id, (int) $giftYear) / 1000
+        );
+    }
 @endphp
 
   {{-- JS用 back-up。基本は form[data-data-id] / APP_DATA_ID を使用 --}}
@@ -336,12 +358,22 @@
 
   {{-- ★ past_gift_inputs の相続開始日（月日）を既定値としてJSに渡す --}}
   @php
+    // ★ 相続開始日の月日は「家族構成等」で入力している日付（header_month/header_day）を正とする
+    //    まず家族構成等の値を採用し、無い場合のみ従来の pastGiftInput をフォールバックにする
+    $headerMonthFromFamily = old('header_month', request()->input('header_month'));
+    $headerDayFromFamily   = old('header_day',   request()->input('header_day'));
+
     // Controller 側で $pastGiftInput を渡している想定（なければ null 安全）
     $inhMonthFromDb = old('inherit_month', $pastGiftInput->inherit_month ?? null);
     $inhDayFromDb   = old('inherit_day',   $pastGiftInput->inherit_day   ?? null);
-    // DB未設定時のフォールバック（5/7）。必要なら変更可。
-    $inhMonthBase   = $inhMonthFromDb ?: 5;
-    $inhDayBase     = $inhDayFromDb   ?: 7;
+
+    $inhMonthBase = filled($headerMonthFromFamily)
+        ? (int) $headerMonthFromFamily
+        : ((int) ($inhMonthFromDb ?: 5));
+
+    $inhDayBase = filled($headerDayFromFamily)
+        ? (int) $headerDayFromFamily
+        : ((int) ($inhDayFromDb ?: 7));
   @endphp
   <input type="hidden" name="inherit_base_month" value="{{ $inhMonthBase }}">
   <input type="hidden" name="inherit_base_day"   value="{{ $inhDayBase }}">
@@ -521,7 +553,7 @@
           <th id="cal-tax-header">(一般税率)<br>贈与税額</th>          
           <th>贈与加算<br>累計額</th>
           <th class="future-edit-col-header">贈与額</th>
-          <th>{{ number_format($giftBasicDeductionK) }}千円<br>基礎控除</th>          
+          <th id="set-basic-deduction-header">{{ number_format($giftBasicDeductionK) }}千円<br>基礎控除</th>          
           <th>基礎控除後</th>
           <th>2500万円<br>特別控除後</th>
           <th>20%の<br>贈与税額</th>
@@ -541,7 +573,13 @@
             $i = 0;
             $zoyoTotal = $prefillFuture['rekinen']['total']['zoyo'] ?? 0;
             $kojoTotal = $prefillFuture['rekinen']['total']['kojo'] ?? 0;
-            $basicK = $giftBasicDeductionK * count(array_filter($prefillFuture['rekinen']['year'] ?? [])); // 贈与年数            
+
+            $rekinenYears = array_filter($prefillFuture['rekinen']['year'] ?? [], static fn ($year) => filled($year));
+            $basicK = array_sum(array_map(
+                static fn ($year) => $giftBasicDeductionByYearK[(int) $year] ?? $giftBasicDeductionK,
+                $rekinenYears
+            ));
+
             $afterBasic = max($zoyoTotal - $basicK, 0);
           ?>
           
@@ -625,22 +663,28 @@
 
         <!-- 1-10 -->
         @for ($i = 1; $i <= 20; $i++)
+        @php
+          $rowGiftYear = $futureBaseYearValue !== '' ? ((int) $futureBaseYearValue + $i - 1) : '';
+        @endphp        
         <tr>
 
           <td class="text-end">{{ $i }}</td>
 
-          <td>{{ (2024 + $i) }}</td>
+          <td class="future-gift-year" data-row="{{ $i }}">
+            {{ $rowGiftYear !== '' ? $rowGiftYear : '' }}
+          </td>
 
           <td class="border py-0 age-cell" style="padding-left:0; padding-right:0;">
             <input
               type="text"
               class="form-control input-small text-end age-input"
               name="age_dynamic"
+              data-row-no="{{ $i }}"              
               data-recipient-no="{{ $prefillFuture['recipient_no'] ?? '' }}"
               data-birth-year="{{ $prefillFamily[$prefillFuture['recipient_no']]['birth_year'] ?? '' }}"
               data-birth-month="{{ $prefillFamily[$prefillFuture['recipient_no']]['birth_month'] ?? '' }}"
               data-birth-day="{{ $prefillFamily[$prefillFuture['recipient_no']]['birth_day'] ?? '' }}"
-              data-base-year="{{ 2024 + $i }}"
+              data-base-year="{{ $rowGiftYear !== '' ? $rowGiftYear : '' }}"
               readonly
               tabindex="-1"
               style="ime-mode: disabled; background-color: #f0f0f0;"
@@ -662,7 +706,8 @@
             {{-- ★行単位の贈与日（UIを崩さない hidden。必要な行だけ値を入れてください） --}}
             <input type="hidden" name="gift_day[{{ $i }}]"   value="{{ old('gift_day.'.$i,   $prefillFuture['plan']['gift_day'][$i]   ?? '') }}">
             
-            <input type="hidden" name="gift_year[{{ $i }}]" value="{{ 2024 + $i }}">
+            <input type="hidden" name="gift_year[{{ $i }}]"
+                   value="{{ old('gift_year.'.$i, $prefillFuture['plan']['gift_year'][$i] ?? $rowGiftYear) }}">
           </td>
 
  
@@ -758,10 +803,10 @@
           暦年贈与の場合、取り戻される額は基礎控除後の額ではなく贈与額そのものです。一方、精算課税贈与の場合は2024年より110万円控除が適用されるようになり取り戻される額は110万円控除後の額です。。
         </td>
       </tr>
-       <tr>
+      <tr>
         <td class="text-end pe-3 va-top">※</td>
         <td class="text-start">
-          ここに計算表示されている暦年贈与の贈与加算累計額は3年超の贈与に適用される110万円控除を適用済みです。
+          ここに計算表示されている暦年贈与の贈与加算累計額は3年超の贈与に適用される100万円控除を適用済みです。
         </td>
       </tr>
   </table>
@@ -794,6 +839,8 @@ window.GIFT_RATES = {
   general: @json($generalRates, JSON_UNESCAPED_UNICODE)
 };
 window.GIFT_BASIC_DEDUCTION_K = @json($giftBasicDeductionK);
+window.GIFT_BASIC_DEDUCTION_BY_YEAR = @json($giftBasicDeductionByYearK, JSON_UNESCAPED_UNICODE);
+
 
       /** ---------- 共通ユーティリティ ---------- */
       const KYEN = 1000; // 千円→円
@@ -817,6 +864,118 @@ const setK = (name, idx, v) => {
     if (!el) return;
     el.value = (v === '' || v === null || v === undefined) ? '' : fmtK(v);
 };
+
+
+const syncInheritBaseDateFromFamily = () => {
+  const monthEl = document.querySelector('input[name="inherit_base_month"]');
+  const dayEl   = document.querySelector('input[name="inherit_base_day"]');
+
+  const readFamilyMonth = () => {
+    const live = document.querySelector('input[name="header_month"]:not([type="hidden"])');
+    const any  = live || document.querySelector('input[name="header_month"]');
+    return any ? any.value : '';
+  };
+
+  const readFamilyDay = () => {
+    const live = document.querySelector('input[name="header_day"]:not([type="hidden"])');
+    const any  = live || document.querySelector('input[name="header_day"]');
+    return any ? any.value : '';
+  };
+
+  const familyMonth = toInt(readFamilyMonth(), 0);
+  const familyDay   = toInt(readFamilyDay(), 0);
+
+  if (monthEl && familyMonth > 0) {
+    monthEl.value = String(familyMonth);
+  }
+  if (dayEl && familyDay > 0) {
+    dayEl.value = String(familyDay);
+  }
+};
+
+window.syncInheritBaseDateFromFamily = syncInheritBaseDateFromFamily;
+
+
+
+
+const getFutureBaseYear = () =>
+  toInt(document.querySelector('input[name="future_base_year"]')?.value, 0);
+
+const getFutureRowYear = (rowNo) => {
+  const baseYear = getFutureBaseYear();
+  return (baseYear > 0 && rowNo > 0) ? (baseYear + rowNo - 1) : 0;
+};
+
+const getGiftBasicDeductionKByYear = (year) => {
+  const y = Number(year || 0);
+  const map = window.GIFT_BASIC_DEDUCTION_BY_YEAR || {};
+
+  if (y && map[y] != null) {
+    return Number(map[y]) || 0;
+  }
+
+  const fallback = Number(window.GIFT_BASIC_DEDUCTION_K ?? 0);
+  return Number.isFinite(fallback) ? fallback : 0;
+};
+
+const updateGiftBasicDeductionHeader = (baseYear) => {
+  const basicK = getGiftBasicDeductionKByYear(baseYear || getFutureBaseYear());
+  window.GIFT_BASIC_DEDUCTION_K = basicK;
+
+  const header = document.getElementById('set-basic-deduction-header');
+  if (header) {
+    header.innerHTML = `${fmtK(basicK)}千円<br>基礎控除`;
+  }
+};
+
+window.getFutureBaseYear = getFutureBaseYear;
+window.getFutureRowYear = getFutureRowYear;
+window.getGiftBasicDeductionKByYear = getGiftBasicDeductionKByYear;
+
+window.rerenderFutureGiftYears = function ({ skipRecalc = false } = {}) {
+  const baseYear = getFutureBaseYear();
+
+  for (let i = 1; i <= 20; i++) {
+    const rowGiftYear = getFutureRowYear(i);
+
+    const yearCell = document.querySelector(`.future-gift-year[data-row="${i}"]`);
+    if (yearCell) {
+      yearCell.textContent = rowGiftYear ? String(rowGiftYear) : '';
+    }
+
+    const giftYearEl = document.querySelector(`input[name="gift_year[${i}]"]`);
+    if (giftYearEl) {
+      giftYearEl.value = rowGiftYear ? String(rowGiftYear) : '';
+    }
+
+    const ageEl = document.querySelector(`input[name="age_dynamic"][data-row-no="${i}"]`);
+    if (ageEl) {
+      ageEl.dataset.baseYear = rowGiftYear ? String(rowGiftYear) : '';
+    }
+  }
+
+  updateGiftBasicDeductionHeader(baseYear);
+
+  const rn = (typeof window.getCurrentRecipientNo === 'function')
+    ? window.getCurrentRecipientNo()
+    : (document.getElementById('future-recipient-no')?.value || '');
+
+  if (rn && typeof window.recalcAges === 'function') {
+    window.recalcAges(rn);
+  }
+
+  if (skipRecalc) return;
+
+  try { recalcSettlementAllRows && recalcSettlementAllRows(); } catch (_) {}
+  try { syncCalendarGiftLockBySettlement && syncCalendarGiftLockBySettlement(); } catch (_) {}
+  try { recalcAllRowsCal && recalcAllRowsCal(); } catch (_) {}
+  try { updateTopCounters && updateTopCounters(); } catch (_) {}
+  try { recalcPastOnlyCum0 && recalcPastOnlyCum0(); } catch (_) {}
+  try { recalcPastSettlementRow0 && recalcPastSettlementRow0(); } catch (_) {}
+};
+
+
+
 
 
       /** ---------- 年齢表示 ---------- */
@@ -887,9 +1046,15 @@ const getLookbackRange = (deathDate) => {
 // calcRekinenCumK 関数の定義
 // ---------- 過年度(rekinen)のルックバック累計(千円)を算出 ----------
 // 2025年死亡例：2022/5/7〜2025/5/7 だけを対象にする（3年を厳密に含む）
-// 2027〜2030年は 2024/1/1 固定開始、2031年以降は7年（超過分は 1,100千円控除後を加算）
-// ※控除(1,100千円)は「3年超の範囲」が存在する場合のみ適用
+// 2027〜2030年は 2024/1/1 固定開始、2031年以降は7年
+// 「3年超」の部分には経過措置として 1,000千円控除を適用する
+// ※これは贈与税の基礎控除額(1,100千円)とは別物
 //
+
+const CALENDAR_CUM_OVER3_DEDUCTION_K = 1000;
+
+const getCalendarCumOver3DeductionK = () => CALENDAR_CUM_OVER3_DEDUCTION_K;
+
 const calcRekinenCumK = (rekinen, deathDate) => {
     if (!rekinen || !rekinen.year || !rekinen.month || !rekinen.day) return null;
 
@@ -922,7 +1087,9 @@ const calcRekinenCumK = (rekinen, deathDate) => {
         else over3 += Math.trunc(kz);
     }
 
-    const OVER3_DEDUCTION_K = 1000;
+    const OVER3_DEDUCTION_K = getCalendarCumOver3DeductionK();
+
+
     return within3 + Math.max(0, over3 - OVER3_DEDUCTION_K);
 };
 
@@ -1019,6 +1186,9 @@ const calcRekinenCumK = (rekinen, deathDate) => {
 
       /** ---------- 暦年：全行一括再計算（cal_cum はルックバックで集計） ---------- */
       const recalcAllRowsCal = () => {
+        
+          try { syncInheritBaseDateFromFamily(); } catch (_) {}
+        
           const rn = document.getElementById('future-recipient-no')?.value || '';
           // ★ 受贈者フィルタで使用する現在値（未定義参照の修正）
           const rnSel = getCurrentRecipientNo();
@@ -1027,8 +1197,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
           toggleCalTaxHeader(isTokurei);
       
           const rows = getCalRows();
-          const BASIC_K = Number(window.GIFT_BASIC_DEDUCTION_K || 1100);  // 基礎控除額（マスター由来・千円）
-          
+
       
           const giftMonth = toInt(document.querySelector('input[name="future_base_month"]')?.value, 12);
           const giftDay = toInt(document.querySelector('input[name="future_base_day"]')?.value, 31);
@@ -1040,25 +1209,38 @@ const calcRekinenCumK = (rekinen, deathDate) => {
 
            const giftDates = {};
            for (const j of rows) {
-               const gy = 2024 + j; // 行番号が 1=2025年 になるよう、確実に固定（ズレ対策）               
+
+               const gy = toInt(document.querySelector(`input[name="gift_year[${j}]"]`)?.value, getFutureRowYear(j));
                const gm = toInt(document.querySelector(`input[name="gift_month[${j}]"]`)?.value, giftMonth || 12);
                const gd = toInt(document.querySelector(`input[name="gift_day[${j}]"]`)?.value, giftDay || 31);
                const mm = clamp(gm - 1, 0, 11);
                const dd = clamp(gd, 1, 31);
-               giftDates[j] = new Date(gy, mm, dd);
+               giftDates[j] = gy ? new Date(gy, mm, dd) : null;
            }
 
             for (const i of rows) {
               const amtEl = document.querySelector(`input[name="cal_amount[${i}]"]`);
               if (!amtEl) continue;
           
+              const giftYear = toInt(document.querySelector(`input[name="gift_year[${i}]"]`)?.value, getFutureRowYear(i));
+              const basicKForRow = getGiftBasicDeductionKByYear(giftYear || getFutureBaseYear());
               const amountK_self = toInt(amtEl.value, 0);
-              const afterK = Math.max(amountK_self - BASIC_K, 0);
+              const afterK = Math.max(amountK_self - basicKForRow, 0);
               const taxK = calcGiftTaxKyen(afterK, isTokurei);
-          
+
+
+              const deathYear = giftYear || getFutureRowYear(i);
+              if (!deathYear) {
+                setK('cal_basic', i, amountK_self > 0 ? -basicKForRow : '');
+                setK('cal_after_basic', i, afterK);
+                setK('cal_tax', i, taxK);
+                setK('cal_cum', i, '');
+                continue;
+              }
+
               const inhM = toInt(document.querySelector(`input[name="inherit_month[${i}]"]`)?.value, inhBaseMonth || 12);
               const inhD = toInt(document.querySelector(`input[name="inherit_day[${i}]"]`)?.value, inhBaseDay || 31);
-              const deathDate = new Date(2024 + i, Math.max(0, Math.min(11, inhM - 1)), Math.max(1, Math.min(31, inhD)));
+              const deathDate = new Date(deathYear, Math.max(0, Math.min(11, inhM - 1)), Math.max(1, Math.min(31, inhD)));
               const [rangeStart, rangeEnd] = getLookbackRange(deathDate);
               const threeYearsAgo = new Date(deathDate);
               threeYearsAgo.setFullYear(deathDate.getFullYear() - 3);
@@ -1109,7 +1291,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
                     const totalOver3K = sumOver3K + sumPastOver3K;
                     
                     // ④ 累計額の計算
-                    const OVER3_DEDUCTION_K = 1000;
+                    const OVER3_DEDUCTION_K = getCalendarCumOver3DeductionK();                    
                     let cumK = totalWithin3K + Math.max(0, totalOver3K - OVER3_DEDUCTION_K);
                     
               //console.debug(`2025_11_10_01 Row ${i}: sumPastOver3K=${sumPastOver3K}, sumOver3K=${sumOver3K}, cumK=${cumK}`);
@@ -1126,7 +1308,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
               }
 
 
-              setK('cal_basic', i, amountK_self > 0 ? -BASIC_K : '');
+              setK('cal_basic', i, amountK_self > 0 ? -basicKForRow : '');              
               setK('cal_after_basic', i, afterK);
               setK('cal_tax', i, taxK);
 
@@ -1157,7 +1339,6 @@ const calcRekinenCumK = (rekinen, deathDate) => {
 
       /** ---------- 精算課税（110万/2,500万/20%／加算累計は「基礎控除後」） ---------- */
       const recalcSettlementAllRows = () => {
-        const BASIC_1100 = Number(window.GIFT_BASIC_DEDUCTION_K || 1100);
         let remain25m = 25000;
         const rows = getSetRows();
 
@@ -1183,10 +1364,13 @@ const calcRekinenCumK = (rekinen, deathDate) => {
           const el = document.querySelector(`input[name="set_amount[${i}]"]`);
           if (!el) continue;
 
+          const giftYear = toInt(document.querySelector(`input[name="gift_year[${i}]"]`)?.value, getFutureRowYear(i));
+          const basicKForRow = getGiftBasicDeductionKByYear(giftYear || getFutureBaseYear());
           const amountK = toInt(el.value, 0);
-          setK('set_basic110', i, amountK > 0 ? -BASIC_1100 : '');
 
-          const afterBasic = Math.max(amountK - BASIC_1100, 0);
+          setK('set_basic110', i, amountK > 0 ? -basicKForRow : '');
+
+          const afterBasic = Math.max(amountK - basicKForRow, 0);          
           const useThis = Math.min(remain25m, afterBasic);
           const after25m = Math.max(afterBasic - useThis, 0);
           remain25m -= useThis;
@@ -1347,6 +1531,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
   document.addEventListener('DOMContentLoaded', () => {
   
+  
+    try { syncInheritBaseDateFromFamily(); } catch (_) {}
+  
+  
     // 即時実行関数（IIFE）の開始（初期データ取得のため async 化）
     (async function () {
 
@@ -1435,9 +1623,12 @@ document.addEventListener('DOMContentLoaded', function () {
           if (i > 7) break; // 2025〜2031のみ
           const vK = toInt(document.querySelector(`input[name="cal_amount[${i}]"]`)?.value, 0);
           if (!vK) continue;
+
+          const giftYear = toInt(document.querySelector(`input[name="gift_year[${i}]"]`)?.value, getFutureRowYear(i));
+          if (!giftYear) continue;
           const gm = toInt(document.querySelector(`input[name="gift_month[${i}]"]`)?.value, giftMonthDefault);
           const gd = toInt(document.querySelector(`input[name="gift_day[${i}]"]`)?.value,   giftDayDefault);
-          const dt = new Date(2024 + i, clamp((gm||12)-1,0,11), clamp(gd||31,1,31));
+          const dt = new Date(giftYear, clamp((gm||12)-1,0,11), clamp(gd||31,1,31));
           if (dt < rangeStart || dt > rangeEnd) continue;
           if (dt >= threeYearsAgo) within3K += vK; else over3K += vK;
         }
@@ -1468,7 +1659,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
 
-        const OVER3_DEDUCTION_K = 1000;
+        const OVER3_DEDUCTION_K = getCalendarCumOver3DeductionK();        
         let cumK = within3K + Math.max(0, over3K - OVER3_DEDUCTION_K);
         // クライアント算出が 0 のときのみ、サーバ返却のフォールバックを適用
         if (!cumK && window.__LAST_FUTURE_PAYLOAD?.past) {
@@ -1582,7 +1773,7 @@ document.addEventListener('DOMContentLoaded', function () {
           if (dt < rangeStart || dt > rangeEnd) continue;
           if (dt >= threeYearsAgo) within3K += z; else over3K += z;
         }
-        const OVER3_DEDUCTION_K = 1000;
+        const OVER3_DEDUCTION_K = getCalendarCumOver3DeductionK();        
         return within3K + Math.max(0, over3K - OVER3_DEDUCTION_K);
       };
       
@@ -1819,6 +2010,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 document.addEventListener('DOMContentLoaded', () => {
+
+  try { window.rerenderFutureGiftYears?.({ skipRecalc: true }); } catch (_) {}
+  
+  try { syncInheritBaseDateFromFamily(); } catch (_) {}  
+
   const sel = document.getElementById('future-recipient-no');
   if (!sel) return;
   // ★ 二重バインド防止（このブロックが複数あっても1回だけ attach）
@@ -2102,6 +2298,24 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
 
+      const futureBaseYearEl = document.querySelector('input[name="future_base_year"]');
+      if (futureBaseYearEl) {
+        const rerenderFutureYears = () => {
+          if (typeof window.rerenderFutureGiftYears === 'function') {
+            window.rerenderFutureGiftYears();
+          }
+        };
+
+        futureBaseYearEl.addEventListener('change', rerenderFutureYears);
+        futureBaseYearEl.addEventListener('blur', rerenderFutureYears);
+        futureBaseYearEl.addEventListener('input', () => {
+          const normalized = normalizeNum(futureBaseYearEl.value).replace(/[^\d\-]/g, '');
+          if (normalized.length >= 4) {
+            rerenderFutureYears();
+          }
+        });
+      }
+
       // ★行ごとの贈与日（gift_month/day）が変わったら再計算
       document.addEventListener('input', (e) => {
         const t = e.target;
@@ -2292,6 +2506,8 @@ function applyFuturePayload(p) {
     if (p.header.year  != null) setInputValue('future_base_year',  p.header.year);
     if (p.header.month != null) setInputValue('future_base_month', p.header.month);
     if (p.header.day   != null) setInputValue('future_base_day',   p.header.day);
+    
+    try { window.rerenderFutureGiftYears?.({ skipRecalc: true }); } catch (_) {}    
   }
 
   // 行データ
@@ -2532,8 +2748,13 @@ function applyFuturePayload(p) {
     if (p.rekinen) {
       const zMap = (p.rekinen.zoyo ?? p.rekinen.zouyo) || {};
       const totalK = Object.values(zMap).reduce((sum,v)=> sum + (+v||0), 0);
-      const nYears = Object.values(p.rekinen.year || {}).filter(y => !!y).length;
-      const basicK = nYears * 1100;
+      const rekinenYears = Object.values(p.rekinen.year || {})
+        .filter(y => !!y)
+        .map(y => Number(y));
+      const basicK = rekinenYears.reduce(
+        (sum, year) => sum + getGiftBasicDeductionKByYear(year),
+        0
+      );
       const afterK = Math.max(totalK - basicK, 0);
     
       const rn = getCurrentRecipientNo();
@@ -2651,9 +2872,29 @@ function futureUpsertHidden(name, value) {
   el.value = value ?? '';
 }
 
+
+
+function syncFutureInheritanceBaseDateFromFamily() {
+  const month = String(futureReadFieldValue('header_month', '')).trim();
+  const day   = String(futureReadFieldValue('header_day', '')).trim();
+
+  if (month !== '') {
+    futureUpsertHidden('inherit_base_month', month);
+  }
+  if (day !== '') {
+    futureUpsertHidden('inherit_base_day', day);
+  }
+}
+
+
+
 function syncFutureRecipientSelectFromFamily() {
   const sel = document.getElementById('future-recipient-no');
   if (!sel) return;
+  
+
+  // ★ 相続開始日の月日も、家族構成等の入力値を hidden に同期
+  syncFutureInheritanceBaseDateFromFamily();  
 
   const currentValue = String(sel.value || '').trim();
   const rows = [];
@@ -2754,6 +2995,7 @@ function isFutureRecipientSourceField(target) {
 
 document.addEventListener('DOMContentLoaded', () => {
   queueFutureRecipientSync();
+  try { syncFutureInheritanceBaseDateFromFamily(); } catch (_) {}  
 });
 
 document.addEventListener('input', (e) => {
@@ -2766,7 +3008,28 @@ document.addEventListener('change', (e) => {
   queueFutureRecipientSync();
 }, true);
  
- 
+
+document.addEventListener('input', (e) => {
+  const name = e.target?.getAttribute?.('name') || '';
+  if (!['header_month', 'header_day'].includes(name)) return;
+
+  try { syncFutureInheritanceBaseDateFromFamily(); } catch (_) {}
+  try { recalcAllRowsCal && recalcAllRowsCal(); } catch (_) {}
+  try { updateTopCounters && updateTopCounters(); } catch (_) {}
+  try { recalcPastOnlyCum0 && recalcPastOnlyCum0(); } catch (_) {}
+}, true);
+
+document.addEventListener('change', (e) => {
+  const name = e.target?.getAttribute?.('name') || '';
+  if (!['header_month', 'header_day'].includes(name)) return;
+
+  try { syncFutureInheritanceBaseDateFromFamily(); } catch (_) {}
+  try { recalcAllRowsCal && recalcAllRowsCal(); } catch (_) {}
+  try { updateTopCounters && updateTopCounters(); } catch (_) {}
+  try { recalcPastOnlyCum0 && recalcPastOnlyCum0(); } catch (_) {}
+}, true);
+
+
 </script>
 
 
@@ -3021,22 +3284,14 @@ window.clearFutureInputs = window.clearFuturePlanInputs;
      const gd = document.querySelector(`input[name="gift_day[${i}]"]`);
      const gy = document.querySelector(`input[name="gift_year[${i}]"]`);     
 
-     // 未設定時のみ補完（空欄のときだけ）
-     if ((gm?.value === '' || gm?.value === '0') || (gd?.value === '' || gd?.value === '0')) {
-       const baseMonth = toInt(document.querySelector('input[name="future_base_month"]')?.value, 12);
-       const baseDay   = toInt(document.querySelector('input[name="future_base_day"]')?.value, 31);
-       const baseYear  = toInt(document.querySelector('input[name="future_base_year"]')?.value, 2024);
-       if (gm && gm.value === '') gm.value = baseMonth;
-       if (gd && gd.value === '') gd.value = baseDay;
-       if (gy && gy.value === '') gy.value = baseYear;
-     }
-     
-     if ((gm?.value === '' || gm?.value === '0') || (gd?.value === '' || gd?.value === '0')) {
-         gm.value = baseMonth;
-         gd.value = baseDay;
-         gy.value = baseYear;
-     }
-     
+     const baseMonth = toInt(document.querySelector('input[name="future_base_month"]')?.value, 12);
+     const baseDay   = toInt(document.querySelector('input[name="future_base_day"]')?.value, 31);
+     const rowYear   = getFutureRowYear(i) || getFutureBaseYear();
+
+     if (gm && (gm.value === '' || gm.value === '0')) gm.value = String(baseMonth);
+     if (gd && (gd.value === '' || gd.value === '0')) gd.value = String(baseDay);
+     if (gy && (gy.value === '' || gy.value === '0')) gy.value = rowYear ? String(rowYear) : '';
+
 
      // 補完後は即再計算
      recalcAllRowsCal();
@@ -3114,20 +3369,30 @@ function recalcPastSettlementRow0() {
       }).filter(e => e.k > 0);
     }
 
-    // 集計（2024年以降の件数で110万円基礎控除件数を数える）
+    // 集計（2024年以降の件数で基礎控除額マスターを使用）    
     let sumK = 0;
-    let cnt2024 = 0;
+
     entries.forEach(e => {
+
       sumK += Math.trunc(Number(e.k) || 0);
-      if (!Number.isFinite(e.y) || e.y === 0) {
-        // 年不明は1件として扱う（後方互換）
-        cnt2024 += 1;
-      } else if (e.y >= 2024) {
-        cnt2024 += 1;
-      }
+
+
     });
 
-    const basic110K   = 1100 * cnt2024;
+
+    const basic110K = entries.reduce((sum, e) => {
+      if (!Number.isFinite(e.y) || e.y === 0) {
+        const fallbackYear = getFutureBaseYear();
+        return sum + (fallbackYear >= 2024 ? getGiftBasicDeductionKByYear(fallbackYear) : 0);
+      }
+
+      if (e.y < 2024) {
+        return sum;
+      }
+
+      return sum + getGiftBasicDeductionKByYear(e.y);
+    }, 0);
+
     const afterBasicK = Math.max(sumK - basic110K, 0);
     const after25mK   = Math.max(afterBasicK - 25000, 0);
     const tax20K      = Math.floor(after25mK * 0.2);

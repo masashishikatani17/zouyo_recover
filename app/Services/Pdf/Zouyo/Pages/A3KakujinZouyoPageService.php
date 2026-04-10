@@ -88,13 +88,24 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
             return;
         }
 
+
         $birthByRow = [];
+        $inputAgeByRow = [];
         foreach ($familyRows as $rowNo => $row) {
             $birthByRow[(int)$rowNo] = [
                 'year'  => $row->birth_year  !== null ? (int)$row->birth_year  : null,
                 'month' => $row->birth_month !== null ? (int)$row->birth_month : null,
                 'day'   => $row->birth_day   !== null ? (int)$row->birth_day   : null,
             ];
+            
+            $rawAge = $row->age ?? null;
+            if ($rawAge === null || $rawAge === '') {
+                $inputAgeByRow[(int)$rowNo] = null;
+            } else {
+                $age = (int)preg_replace('/[^\d\-]/', '', (string)$rawAge);
+                $inputAgeByRow[(int)$rowNo] = ($age >= 0 && $age <= 130) ? $age : null;
+            }            
+
         }
 
         $targets = [];
@@ -152,6 +163,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
                     $dataId,
                     $group[0],
                     $birthByRow,
+                    $inputAgeByRow,                    
                     $prefillFuture,
                     $rateYearGeneral,
                     $rateYearTokurei,
@@ -166,6 +178,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
                     $dataId,
                     $group[1],
                     $birthByRow,
+                    $inputAgeByRow,                    
                     $prefillFuture,
                     $rateYearGeneral,
                     $rateYearTokurei,
@@ -186,6 +199,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
         int $dataId,
         array $info,
         array $birthByRow,
+        array $inputAgeByRow,        
         array $prefillFuture,
         int $rateYearGeneral,
         int $rateYearTokurei,
@@ -288,6 +302,8 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
 
         $birth = $birthByRow[$recipientNo] ?? ['year' => null, 'month' => null, 'day' => null];
         $donorBirth = $birthByRow[1] ?? ['year' => null, 'month' => null, 'day' => null];
+        $recipientInputAge = $inputAgeByRow[$recipientNo] ?? null;
+        $donorInputAge     = $inputAgeByRow[1] ?? null;        
         $isTokurei = ($tokureiFlag === 1);
         $rateYear  = $isTokurei ? $rateYearTokurei : $rateYearGeneral;
 
@@ -297,6 +313,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
             ->sum('amount_thousand');
 
         $detailCols = [];
+        $firstGiftYear = null;        
         $sum = [
             'cal_amount' => (int)($before2022['cal_amount'] ?? 0),
             'cal_basic'  => (int)($before2022['cal_basic']  ?? 0),
@@ -315,6 +332,9 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
         for ($i = 1; $i <= 20; $i++) {
             $plan = $plans[$i] ?? null;
             $giftYear = $plan && $plan->gift_year ? (int)$plan->gift_year : (2024 + $i);
+            if ($firstGiftYear === null) {
+                $firstGiftYear = $giftYear;
+            }            
 
             $calAmountK  = $toInt($plan->calendar_amount_thousand ?? 0);
             $calBasicInK = $toInt($plan->calendar_basic_deduction_thousand ?? 0);
@@ -349,16 +369,36 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
                 $runningSetCum = $setCumK;
             }
 
-            $age = $this->calcAgeAtJan1(
-                $birth['year'],
-                $birth['month'],
-                $birth['day'],
-                $giftYear
-            );
+            $yearOffset = $firstGiftYear !== null ? ($giftYear - $firstGiftYear) : 0;
+
+            $age = null;
+            if ($recipientInputAge !== null) {
+                $age = $recipientInputAge + $yearOffset;
+            } else {
+                $age = $this->calcAgeAtJan1(
+                    $birth['year'],
+                    $birth['month'],
+                    $birth['day'],
+                    $giftYear
+                );
+            }
+
+            $donorAge = null;
+            if ($donorInputAge !== null) {
+                $donorAge = $donorInputAge + $yearOffset;
+            } else {
+                $donorAge = $this->calcAgeAtJan1(
+                    $donorBirth['year'],
+                    $donorBirth['month'],
+                    $donorBirth['day'],
+                    $giftYear
+                );
+            }
 
             $detailCols[$i] = [
                 'index'      => $i,
                 'gift_year'  => $giftYear,
+                'donor_age'  => $donorAge,                
                 'age'        => $age,
                 'cal_amount' => $calAmountK,
                 'cal_basic'  => -$calBasicK,
@@ -477,19 +517,12 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
         foreach ($detailCols as $i => $col) {
             $x = $col0X + (($i - 1) * $colStep) - 39.0;
             
-            $donorBirth = (array)($dataset['donor_birth'] ?? ['year' => null, 'month' => null, 'day' => null]);
-            $donorAge = $this->calcAgeAtJan1(
-                $donorBirth['year'] ?? null,
-                $donorBirth['month'] ?? null,
-                $donorBirth['day'] ?? null,
-                isset($col['gift_year']) ? (int)$col['gift_year'] : null
-            );
-
             //年次
             $this->drawA3Text($pdf, (string)($col['gift_year'] ?? ''), $x + 1.0, $yGiftYear, 16, 'C');
 
             //贈与者の年齢
-            $this->drawA3Text($pdf, $donorAge !== null ? ((string)$donorAge . '歳') : '', (float)$x + 2.0, $yDonor, 16, 'C', $fontSizeSet);
+            $this->drawA3Text($pdf, isset($col['donor_age']) && $col['donor_age'] !== null ? ((string)$col['donor_age'] . '歳') : '', (float)$x + 2.0, $yDonor, 16, 'C', $fontSizeSet);
+            
 
             //受贈者の年齢
             $this->drawA3Text($pdf, isset($col['age']) && $col['age'] !== null ? ((string)$col['age'] . '歳') : '', (float)$x + 2.0, $yRecipient, 16, 'C', $fontSizeSet);

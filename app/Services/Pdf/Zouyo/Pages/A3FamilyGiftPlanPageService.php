@@ -6,6 +6,7 @@ use App\Models\FutureGiftPlanEntry;
 use App\Models\FutureGiftRecipient;
 use App\Models\PastGiftCalendarEntry;
 use App\Models\PastGiftSettlementEntry;
+use App\Models\ProposalHeader;
 use App\Models\ProposalFamilyMember;
 use App\Services\Pdf\Zouyo\ZouyoPdfPageInterface;
 use TCPDF;
@@ -247,8 +248,13 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
             return;
         }
 
+
+        // ★ 相続開始年を基準に、過年度3年＋1年目〜20年目の年軸を動的に作る
+        $deathYear = $this->resolveDisplayDeathYear($payload, $dataId);
+
+
         $recipientNos = array_keys($targets);
-        $yearKeys     = $this->giftPlanYearKeys();
+        $yearKeys     = $this->giftPlanYearKeys($deathYear);
         $matrix       = $this->initGiftPlanMatrix($recipientNos, $yearKeys);
 
         // ▼ 過年度：暦年贈与
@@ -260,7 +266,7 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
 
         foreach ($pastCalendarRows as $row) {
             $recipientNo = (int)($row->recipient_no ?? 0);
-            $bucket = $this->resolvePastGiftBucket($this->toIntValue($row->gift_year));
+            $bucket = $this->resolvePastGiftBucket($deathYear, $this->toIntValue($row->gift_year));
 
             if ($recipientNo <= 0 || $bucket === null || !isset($matrix[$recipientNo][$bucket])) {
                 continue;
@@ -278,7 +284,7 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
 
         foreach ($pastSettlementRows as $row) {
             $recipientNo = (int)($row->recipient_no ?? 0);
-            $bucket = $this->resolvePastGiftBucket($this->toIntValue($row->gift_year));
+            $bucket = $this->resolvePastGiftBucket($deathYear, $this->toIntValue($row->gift_year));
             if ($recipientNo <= 0 || $bucket === null || !isset($matrix[$recipientNo][$bucket])) {
                 continue;
             }
@@ -304,6 +310,7 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
             $recipientNo = (int)($row->recipient_no ?? 0);
 
             $giftYear = $this->resolveFutureGiftYear(
+                $deathYear,                
                 $row->gift_year !== null ? $this->toIntValue($row->gift_year) : null,
                 $row->row_no !== null ? $this->toIntValue($row->row_no) : null
             );
@@ -390,9 +397,9 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         
         $x = $leftX + $nameW + $typeW;
         foreach ($yearKeys as $yearKey) {
-            $label = $yearKey === 'before_2022' ? '～2021' : (string)$yearKey;
+            $label = $this->formatGiftPlanYearLabel($deathYear, $yearKey);            
             
-            if ($label === '～2021'){
+            if (str_starts_with($yearKey, 'before_')){                
             } else {
 
                 //年次
@@ -709,20 +716,30 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
     }
 
 
-
     /**
      * 横軸の年キー
-     *  - before_2022
-     *  - 2022 / 2023 / 2024
-     *  - 2025-2044
+     *  - before_(相続開始年-3)
+     *  - (相続開始年-3) / (相続開始年-2) / (相続開始年-1)
+     *  - 相続開始年〜(相続開始年+19)
+     *
+     * 例: 相続開始年 2026
+     *  - before_2023
+     *  - 2023 / 2024 / 2025
+     *  - 2026〜2045
      *
      * @return array<int,string>
      */
-    private function giftPlanYearKeys(): array
+    private function giftPlanYearKeys(int $deathYear): array
     {
-        $keys = ['before_2022', '2022', '2023', '2024'];
 
-        foreach (range(2025, 2044) as $year) {
+        $keys = [
+            'before_' . ($deathYear - 3),
+            (string)($deathYear - 3),
+            (string)($deathYear - 2),
+            (string)($deathYear - 1),
+        ];        
+
+        foreach (range($deathYear, $deathYear + 19) as $year) {            
             $keys[] = (string)$year;
         }
 
@@ -752,23 +769,28 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         return $matrix;
     }
 
+
+
     /**
      * 過年度分の年バケット
-     *  - 2021以前 → before_2022
-     *  - 2022-2024 → 年そのもの
+     *  - (相続開始年-3) より前 → before_(相続開始年-3)
+     *  - (相続開始年-3)〜(相続開始年-1) → 年そのもの
      *  - それ以外 → null
      */
-    private function resolvePastGiftBucket(?int $giftYear): ?string
+    private function resolvePastGiftBucket(int $deathYear, ?int $giftYear): ?string
     {
         if ($giftYear === null || $giftYear <= 0) {
             return null;
         }
 
-        if ($giftYear < 2022) {
-            return 'before_2022';
+        $firstPastYear = $deathYear - 3;
+        $lastPastYear  = $deathYear - 1;
+
+        if ($giftYear < $firstPastYear) {
+            return 'before_' . $firstPastYear;
         }
 
-        if ($giftYear <= 2024) {
+        if ($giftYear >= $firstPastYear && $giftYear <= $lastPastYear) {
             return (string)$giftYear;
         }
 
@@ -778,9 +800,9 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
     /**
      * 未来分の年を決定する
      *  - gift_year があればそれを使用
-     *  - 無ければ row_no から 2025-2044 に補完
+     *  - 無ければ row_no から「1年目 = 相続開始年」で補完
      */
-    private function resolveFutureGiftYear(?int $giftYear, ?int $rowNo): ?int
+    private function resolveFutureGiftYear(int $deathYear, ?int $giftYear, ?int $rowNo): ?int
     {
         $resolvedYear = $giftYear;
 
@@ -789,16 +811,79 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
                 return null;
             }
 
-            // KakujinZouyoPageService と同じ補完
-            // row_no=1 → 2025, row_no=20 → 2044
-            $resolvedYear = 2024 + $rowNo;
+            // row_no=1 → 相続開始年, row_no=20 → 相続開始年+19
+            $resolvedYear = $deathYear + $rowNo - 1;
+
         }
 
-        if ($resolvedYear < 2025 || $resolvedYear > 2044) {
+        if ($resolvedYear < $deathYear || $resolvedYear > ($deathYear + 19)) {        
             return null;
         }
 
         return $resolvedYear;
+    }
+
+
+    /**
+     * 年見出しの表示ラベル
+     *  - before_(相続開始年-3) → ～(相続開始年-4)
+     *  - それ以外はそのまま
+     */
+    private function formatGiftPlanYearLabel(int $deathYear, string $yearKey): string
+    {
+        $beforeKey = 'before_' . ($deathYear - 3);
+        if ($yearKey === $beforeKey) {
+            return '～' . ($deathYear - 4);
+        }
+
+        return $yearKey;
+    }
+
+    /**
+     * 表示用の相続開始年を解決する。
+     *
+     * 優先順位:
+     *  1) payload.header_year
+     *  2) payload.header['year']
+     *  3) proposal_headers.proposal_year
+     *  4) proposal_headers.proposal_date の年
+     *  5) 当年
+     */
+    private function resolveDisplayDeathYear(array $payload, int $dataId): int
+    {
+        $candidates = [
+            $payload['header_year'] ?? null,
+            $payload['header']['year'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $year = $this->toIntValue($candidate);
+            if ($year >= 1900) {
+                return $year;
+            }
+        }
+
+        $header = ProposalHeader::query()
+            ->where('data_id', $dataId)
+            ->first();
+
+        if ($header) {
+            $proposalYear = $this->toIntValue($header->proposal_year ?? null);
+            if ($proposalYear >= 1900) {
+                return $proposalYear;
+            }
+
+            $proposalDate = (string)($header->proposal_date ?? '');
+            if ($proposalDate !== '') {
+                try {
+                    return (int)(new \DateTimeImmutable($proposalDate))->format('Y');
+                } catch (\Throwable $e) {
+                    // no-op
+                }
+            }
+        }
+
+        return (int)date('Y');
     }
 
     /**

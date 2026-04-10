@@ -251,24 +251,59 @@ class ZouyotaxCalc
      */
     private function loadGiftRateRowsFromSingleMaster(bool $tokurei): array
     {
-        $rows = [];
-
         if ($tokurei) {
-            $service = app(ZouyoMasterService::class);
+            $anchor = ZouyoTokureiRate::query()
+                ->select([
+                    'id',
+                    'company_id',
+                    'kihu_year',
+                    'version',
+                    'seq',
+                    'lower',
+                    'upper',
+                    'rate',
+                    'deduction_amount',
+                ])
+                ->find(1);
 
-            if (method_exists($service, 'getTokureiMasterRows')) {
-                $rows = $service->getTokureiMasterRows(null);
+            if (!$anchor) {
+                return [];
             }
-        } else {
-            /** @var \App\Services\Zouyo\ZouyoGeneralRateResolver $resolver */
-            $resolver = app(ZouyoGeneralRateResolver::class);
 
-            if (method_exists($resolver, 'getRowsFromSingleMaster')) {
-                $rows = $resolver->getRowsFromSingleMaster(null);
+            $rows = ZouyoTokureiRate::query()
+                ->select([
+                    'id',
+                    'company_id',
+                    'kihu_year',
+                    'version',
+                    'seq',
+                    'lower',
+                    'upper',
+                    'rate',
+                    'deduction_amount',
+                ])
+                ->where('kihu_year', (int) $anchor->kihu_year)
+                ->where('version', (int) $anchor->version)
+                ->whereNull('company_id')
+                ->orderBy('seq')
+                ->get();
+
+            if ($rows->isEmpty()) {
+                return [];
             }
+
+            return $this->normalizeGiftRateRows($rows);
         }
 
-        if (empty($rows)) {
+        /** @var \App\Services\Zouyo\ZouyoGeneralRateResolver $resolver */
+        $resolver = app(ZouyoGeneralRateResolver::class);
+
+        if (!method_exists($resolver, 'getRowsFromSingleMaster')) {
+            return [];
+        }
+
+        $rows = $resolver->getRowsFromSingleMaster(null);
+        if ($rows->isEmpty()) {
             return [];
         }
 
@@ -476,20 +511,21 @@ class ZouyotaxCalc
     private array $caseConfig = [];
 
     /**
-     * projections（年次表）用の「基準死亡日」を JS(future_zouyo.blade) と一致させる。
+     * after projection 用の基準死亡日を解決する。
      *
-     * 年次表用の基準死亡日。
+     * 仕様:
+     *  - t=1 が「1年後」= 実際の相続開始日ベースになること
+     *  - t=2 はその1年後、t=3 はその2年後 ... となること
      *
-     * これまでは年を 2024 固定にしていたため、
-     * projections.after[0] が 2024-05-07 になってしまっていた。
+     * そのため、ここで返すのは
+     *   「実際の死亡日と同じ年・同じ月日」
+     * とし、年次ループ側で + (t-1) 年して使う。
      *
-     * 今後は「実際の死亡日年」を基準年として採用し、
-     * 月日だけ inherit_base_* / header_* / PastGiftInput から補完する。
-     *
-     * 優先順位（month/day）:
+     * 月日の優先順位:
      *  1) payload inherit_base_month / inherit_base_day
-     *  2) PastGiftInput inherit_month / inherit_day（後方互換）
-     *  3) 12/31
+     *  2) payload header_month / header_day
+     *  3) PastGiftInput inherit_month / inherit_day（後方互換）
+     *  4) 12/31
      */
     private function resolveProjectionBaseDeathDate(array $payload, int $dataId): \DateTimeImmutable
     {
@@ -530,8 +566,16 @@ class ZouyotaxCalc
         if ($mm < 1 || $mm > 12) { $mm = 12; }
         if ($dd < 1 || $dd > 31) { $dd = 31; }
 
-        // 基準年は JS と同じく 2024 固定
-        return new \DateTimeImmutable(sprintf('2024-%02d-%02d', $mm, $dd));
+
+        // ★基準年は「実際の死亡日年」を使う
+        //   これにより、年次ループ側で +(t-1) 年すると
+        //   t=1 が実際の相続開始日、t=2 がその1年後になる
+        $actualDeathDate = $this->resolveDeathDateFromPayload($payload, $dataId);
+        $yy = (int)$actualDeathDate->format('Y');
+
+        return new \DateTimeImmutable(sprintf('%04d-%02d-%02d', $yy, $mm, $dd));
+
+
     }
 
 
@@ -1829,13 +1873,9 @@ class ZouyotaxCalc
         // ★ t=0 は「過去分のみ」の贈与税額累計（暦年＋精算）
         $after['summary']['calendar_gift_tax_cum_yen'] = $baseGiftTaxCumYen;
 
-        // ★projections（年次表）の死亡日基準は JS(future_zouyo.blade) と一致させる
-        //   - 基準年は 2024 固定
-        //   - 月日は inherit_base_month/day（無ければ header_month/day）を採用
-        //  これにより incl_calendar_yen の年次ズレ（1年早く減る）を解消する。
-        // ★注意：この 2024固定ベースは「対策後(after)の表示(=JS)整合」のためのもの。
-        //        対策前(before)に流用すると、贈与算入の境界(3年/7年等)が前倒しになり税額が崩れるため、
-        //        before は「実際の死亡日(deathDate)」ベースで年次を進める。
+        // ★projections（年次表）の死亡日基準
+        //   - after : 実際の相続開始日を基準にし、t=1 から相続開始日ベースで評価する
+        //   - before: 実際の死亡日(deathDate)ベース        
         $projectionBaseDeathDateAfter  = $this->resolveProjectionBaseDeathDate($payload, $dataId);
         $projectionBaseDeathDateBefore = $deathDate; // resolveDeathDateFromPayload() の結果（実死亡日）
 
@@ -1855,11 +1895,12 @@ class ZouyotaxCalc
         for ($t = 0; $t <= 20; $t++) {
             // ------------------------------------------------------------
             // 年次ごとの死亡日
-            //  - before : 実死亡日ベース（税額の正しさ優先）
-            //  - after  : 2024固定ベース（JS表示との整合優先）
-            // ------------------------------------------------------------
+            //  - before : 実死亡日ベース
+            //  - after  : t=1 が実際の相続開始日、t=2 がその1年後 ...
+            // ------------------------------------------------------------            
             $deathDateTBefore = (clone $projectionBaseDeathDateBefore)->modify('+' . ($t). ' year');
-            $deathDateTAfter  = (clone $projectionBaseDeathDateAfter )->modify('+' . ($t). ' year');
+            $afterYearsAhead  = max(0, $t - 1);
+            $deathDateTAfter  = (clone $projectionBaseDeathDateAfter)->modify('+' . $afterYearsAhead . ' year');
 
             // ------------------------------------------------------------
             // ★重要：

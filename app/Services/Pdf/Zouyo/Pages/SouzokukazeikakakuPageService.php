@@ -240,6 +240,11 @@ class SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
              ?? $r['after']['projections']
              ?? [];
 
+
+
+
+
+
         /*
          \Log::info('[SouzokukazeikakakuPageService] projections diagnose', [
              'resultsData_keys' => array_keys($r),
@@ -278,7 +283,7 @@ class SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
              $beforeSummary,
              $baseAge
         ): array {
-             $projection = ($t === 0) ? [] : ($projAfter[$t] ?? []);
+             $projection = ($t === 0) ? [] : ((array) ($projAfter[$t] ?? $projAfter[(string)$t] ?? []));
              $summary    = ($t === 0) ? $after : (($projection['summary'] ?? []) ?: []);
              $meta       = ($t === 0) ? $afterMeta : (($projection['meta'] ?? []) ?: []);
 
@@ -289,15 +294,20 @@ class SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
 
              // この帳票は Calculator / projection が返した SoT をそのまま使う。
              // PDF側で累計補正や年次加算の再構成はしない。
-             $inclCal   = (int) ($summary['incl_calendar_yen'] ?? 0);
-             $inclSet   = (int) ($summary['incl_settlement_yen'] ?? 0);
+             // ★ PDF仕様：
+             //   贈与加算累計額は「1年後」から表示する。
+             //   そのため「現時点(t=0)」では incl_cal / incl_set は常に 0 とする。
+             $inclCal   = ($t === 0) ? 0 : (int) ($summary['incl_calendar_yen'] ?? 0);
+             $inclSet   = ($t === 0) ? 0 : (int) ($summary['incl_settlement_yen'] ?? 0);
+             
+             
              $inclTotal = (int) ($summary['past_gift_included_total_yen'] ?? ($inclCal + $inclSet));
 
 
              $base        = (int) ($summary['estate_base_yen'] ?? 0);
              $decrCal     = (int) ($summary['gift_decr_calendar_yen'] ?? 0);
              $decrSet     = (int) ($summary['gift_decr_payment_yen'] ?? 0);
-         $estateAfter = (int) ($summary['estate_after_yen'] ?? ($base + $decrCal + $decrSet));
+             $estateAfter = (int) ($summary['estate_after_yen'] ?? ($base + $decrCal + $decrSet));         
 
              /*
              \Log::info('[SouzokukazeikakakuPageService] row diagnose', [

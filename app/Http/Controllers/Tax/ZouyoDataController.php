@@ -323,7 +323,7 @@ class ZouyoDataController extends Controller
                 ->where('group_id', $source->group_id)
                 ->firstOrFail();
         } elseif ($copyMode === 'existing') {
-        $targetGuest = Guest::query()
+            $targetGuest = Guest::query()
                 ->where('company_id', $companyId)
                 ->findOrFail((int) ($validated['target_guest_id'] ?? 0));
         } else {

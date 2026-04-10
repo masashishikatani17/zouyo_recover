@@ -139,12 +139,25 @@ class KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
 
     // 各受贈者の生年月日（年齢計算用）を取得
     $birthByRow = [];
+    $inputAgeByRow = [];    
     foreach ($familyRows as $rowNo => $row) {
         $birthByRow[$rowNo] = [
             'year'  => $row->birth_year  !== null ? (int) $row->birth_year  : null,
             'month' => $row->birth_month !== null ? (int) $row->birth_month : null,
             'day'   => $row->birth_day   !== null ? (int) $row->birth_day   : null,
         ];
+    
+
+        // ★ 家族構成等で入力した「現在年齢」をそのまま t=0 の年齢に使う
+        $rawAge = $row->age ?? null;
+        if ($rawAge === null || $rawAge === '') {
+            $inputAgeByRow[$rowNo] = null;
+        } else {
+            $age = (int)preg_replace('/[^\d\-]/', '', (string)$rawAge);
+            $inputAgeByRow[$rowNo] = ($age >= 0 && $age <= 130) ? $age : null;
+        }        
+
+        
     }
         $pageNo = 0;
         
@@ -325,12 +338,28 @@ foreach ($personTimeline as $index => $timelineData) {
             //$pdf->MultiCell(10, 6, (string)$giftYear, $wakusen, 'R', 0, 0, $x, $y);
     
     
-            // 年齢（基準年＝贈与年の1月1日時点）
-            // 年齢（基準年＝(2025+i)年の1月1日時点）
-            $baseYear = 2025 + $i;
             $birth    = $birthByRow[$recipientNo] ?? ['year' => null, 'month' => null, 'day' => null];
+            $inputAge = $inputAgeByRow[$recipientNo] ?? null;
             if ($age0 === null) {
-                $age0 = $this->calcAgeAtJan1($birth['year'], $birth['month'], $birth['day'], 2025);
+
+                // ★仕様：
+                //   現時点(t=0)の年齢は「家族構成等」で入力した年齢をそのまま採用する
+                //   その後の年次は 1年ごとに +1 する
+                if ($inputAge !== null) {
+                    $age0 = $inputAge;
+                } else {
+                    // 年齢未保存時のみ従来ロジックでフォールバック
+                    $fallbackBaseYear = (int)date('Y');
+                    $age0 = $this->calcAgeAtJan1(
+                        $birth['year'],
+                        $birth['month'],
+                        $birth['day'],
+                        $fallbackBaseYear
+                    );
+                }
+
+
+
             }
             $age = $age0 !== null ? ($age0 + $i) : null;
 
