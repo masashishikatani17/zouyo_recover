@@ -9,6 +9,7 @@ use App\Services\Pdf\Zouyo\ZouyoPdfPageInterface;
 use App\Services\Pdf\Zouyo\Pages\A3CoverPageService;
 use App\Services\Pdf\Zouyo\Pages\A3HajimeniPageService;
 use App\Services\Pdf\Zouyo\Pages\A3KazeihikakuintroPageService;
+use App\Services\Pdf\Zouyo\Pages\A3KakuzoyoPlanPageService;
 use App\Services\Pdf\Zouyo\Pages\A3FamilyGiftPlanPageService;
 use App\Services\Pdf\Zouyo\Pages\A3KakujinZouyoPageService;
 use App\Services\Pdf\Zouyo\Pages\A3KakujinSouzokuPageService;
@@ -46,12 +47,13 @@ class ZouyoA3PdfGenerator
         '1' => A3HajimeniPageService::class,
         '2' => A3KazeihikakuintroPageService::class,
         '3' => A3FamilyGiftPlanPageService::class,
-        '4' => A3KakujinZouyoPageService::class,
-        '5' => A3KakujinSouzokuPageService::class,
-        '6' => A3SouzokukazeikakakuPageService::class,
-        '7' => A3SouzokuninzaisansuiiPageService::class,
-        '8' => A3KakujinzaisansuiiPageService::class,
-        '9' => A3OwariniPageService::class,
+        '4' => A3KakuzoyoPlanPageService::class,
+        '5' => A3KakujinZouyoPageService::class,
+        '6' => A3KakujinSouzokuPageService::class,
+        '7' => A3SouzokukazeikakakuPageService::class,
+        '8' => A3SouzokuninzaisansuiiPageService::class,
+        '9' => A3KakujinzaisansuiiPageService::class,
+        '10' => A3OwariniPageService::class,
     ];
 
     public function __construct(
@@ -68,7 +70,7 @@ class ZouyoA3PdfGenerator
      */
     public function generate(int $dataId, array $pageIds): string
     {
-        // 1. ページIDを 0〜9 の整数に正規化        
+        // 1. ページIDを 0〜11 の整数に正規化        
         $pageIds = $this->normalizePageIds($pageIds);
 
         if (empty($pageIds)) {
@@ -84,7 +86,7 @@ class ZouyoA3PdfGenerator
 
         $pdf->SetCreator('Laravel TCPDF');
         $pdf->SetAuthor('Zouyo App');
-        $pdf->SetTitle('最適贈与プランナー');
+        $pdf->SetTitle('最適贈与額計算システム"贈与名人"');
 
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
@@ -125,7 +127,7 @@ class ZouyoA3PdfGenerator
     }
 
     /**
-     * ページIDの正規化（0〜9 の整数に限定・重複削除）。
+     * ページIDの正規化（0〜11 の整数に限定・重複削除）。
      *
      * @param  array<int,int|string> $pageIds
      * @return array<int,int>
@@ -133,7 +135,7 @@ class ZouyoA3PdfGenerator
     private function normalizePageIds(array $pageIds): array
     {
         $pageIds = array_map('intval', $pageIds);
-        $pageIds = array_filter($pageIds, fn (int $v) => $v >= 0 && $v <= 9);
+        $pageIds = array_filter($pageIds, fn (int $v) => $v >= 0 && $v <= 11);
         $pageIds = array_values(array_unique($pageIds));
 
         return $pageIds;

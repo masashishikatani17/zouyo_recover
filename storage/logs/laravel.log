@@ -960,3 +960,9 @@
 [2026-04-09 11:21:19] local.DEBUG: 2026.01.16 1000001 [ZouyotaxCalc][after_proj][t=19] incl_calendar_yen=0  
 [2026-04-09 11:21:19] local.DEBUG: 2026.01.16 1000001 [ZouyotaxCalc][after_proj][t=20] incl_calendar_yen=0  
 [2026-04-10 17:05:38] local.ERROR: [ZouyoPdfController] PDF generation failed {"dataId":45,"paperSize":"A3","pages":[5],"error":"syntax error, unexpected token \"if\""} 
+[2026-04-13 16:03:53] local.WARNING: [SouzokukazeikakakuPageService] resultsData could not be resolved {"payload_keys":["data_id","header","summary","family","office_name"]} 
+[2026-04-13 16:03:53] local.WARNING: [SouzokukazeikakakuPageService] t=0 summary is empty {"data_id":70,"results_top_keys":[]} 
+[2026-04-13 16:03:53] local.WARNING: [SouzokukazeikakakuPageService] middle summary is empty {"data_id":70,"results_top_keys":[]} 
+[2026-04-13 16:03:53] local.WARNING: [SouzokukazeikakakuPageService] bottom summary is empty {"data_id":70,"has_before_summary":false,"has_after_summary":false} 
+[2026-04-13 17:00:08] local.ERROR: [ZouyoPdfController] PDF generation failed {"dataId":70,"paperSize":"A3","pages":[3],"error":"Class \"App\\Services\\Pdf\\Zouyo\\Pages\\Support\\A3InheritanceTaxTableDataBuilder\" not found"} 
+[2026-04-13 17:03:19] local.ERROR: [ZouyoPdfController] PDF generation failed {"dataId":70,"paperSize":"A3","pages":[3],"error":"Class \"App\\Services\\Pdf\\Zouyo\\Pages\\Support\\A3InheritanceTaxTableDataBuilder\" not found"} 
