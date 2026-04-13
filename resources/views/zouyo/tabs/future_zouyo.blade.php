@@ -786,25 +786,25 @@
         <col style="width:850px;">
       </colgroup>
       <tr>
-        <td class="text-end pe-3 va-top">※</td>
+        <td class="text-end pe-3 va-top">１．</td>
         <td class="text-start">
-          暦年贈与の場合、取戻し期間が従来３年だったものが2024年より１年ずつ増えていき2027年から最長７年間となります。
+          暦年贈与の場合、取戻し期間が従来３年だったものが2024年より１年ずつ増えていき2031年から最長７年間となります。
         </td>
       </tr>
        <tr>
-        <td class="text-end pe-3 va-top">※</td>
+        <td class="text-end pe-3 va-top">２．</td>
         <td class="text-start">
          贈与加算累計額は贈与がなかったものとして相続財産に加算される額のことですが、既に納付済みの贈与税は相続税から控除されます。また控除しきれない場合には還付されます(ただし精算課税贈与の場合のみ)。
         </td>
       </tr>
        <tr>
-        <td class="text-end pe-3 va-top">※</td>
+        <td class="text-end pe-3 va-top">３．</td>
         <td class="text-start">
           暦年贈与の場合、取り戻される額は基礎控除後の額ではなく贈与額そのものです。一方、精算課税贈与の場合は2024年より110万円控除が適用されるようになり取り戻される額は110万円控除後の額です。。
         </td>
       </tr>
       <tr>
-        <td class="text-end pe-3 va-top">※</td>
+        <td class="text-end pe-3 va-top">４．</td>
         <td class="text-start">
           ここに計算表示されている暦年贈与の贈与加算累計額は3年超の贈与に適用される100万円控除を適用済みです。
         </td>

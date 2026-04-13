@@ -208,7 +208,7 @@
          </td>
       </tr>
       <tr class="border-b align-middle">
-        <th>日 付</th>
+        <th>提案書の日付</th>
         <td class="text-start">
           <div class="flex items-center gap-1">
 
@@ -257,11 +257,12 @@
   
         <thead>
           <tr class="bg-blue text-center">
-            <th>番号</th>
-            <th>氏 名</th>
+            <th style="height:40px; vertical-align:middle;">番号</th>
+            <th style="height:40px; vertical-align:middle;">氏 名</th>
           </tr>
         </thead>
-  
+
+
         <tbody>
           {{-- 1行目（被相続人） --}}
           <tr style="height:25px;">
@@ -322,22 +323,27 @@
   
         <thead>
           <tr class="bg-blue text-center">
-            <th>性別</th>
-            <th>続 柄</th>
-            <th>養子縁組</th>
-            <th>相続人区分</th>
-            <th colspan="3">民法上の<br>法定相続割合</th>
-            <th colspan="3">税法上の<br>法定相続割合</th>
-            <th>2割加算</th>
-            <th>特例贈与</th>
-            <th colspan="3">生年月日</th>
-            <th>年 齢</th>
+            <th rowspan="2">性別</th>
+            <th rowspan="2">続 柄</th>
+            <th rowspan="2">養子縁組</th>
+            <th rowspan="2">相続人の区分</th>
+            <th colspan="6">法定相続割合</th>
+            <th rowspan="2">2割加算</th>
+            <th rowspan="2">特例贈与</th>
+            <th colspan="3" rowspan="2">生年月日</th>
+            <th rowspan="2">年 齢</th>
+            <th colspan="3">所　有　財　産</th>
+          </tr>
+          <tr class="bg-blue text-center">
+            <th colspan="3">民法上</th>
+            <th colspan="3">税法上</th>
             <th>金融資産</th>
             <th>その他資産</th>
-            <th>合 計</th>
+            <th>合　計</th>
           </tr>
         </thead>
-  
+
+
         <tbody>
           {{-- 1行目（被相続人）※「番号・氏名」は左へ移動したのでここには置かない --}}
           <tr>
@@ -596,9 +602,16 @@
       ％	<br>
       ※相続税の２割加算の対象になる人は「ﾚ」を付けて下さい。	<br>
       ※暦年課税の贈与で特例贈与の適用を受けられる受贈者は「ﾚ」を付けて下さい。年齢による判定は自動で行ないます。	<br>
-      <span class="ms-4">法定相続人の人数
-            <input type="text" class="form-control suji2 title-field-calc" name="houtei_ninzu" readonly tabindex="-1">
-      人	</span>
+      <div>
+          ※税法上の法定相続人の人数
+          <input type="text"
+                 class="form-control d-inline-block suji2 title-field-calc"
+                 name="houtei_ninzu"
+                 readonly
+                 tabindex="-1"
+                 style="width:50px; vertical-align:middle;">
+          人
+      </div>
   </div>
 
       <br>

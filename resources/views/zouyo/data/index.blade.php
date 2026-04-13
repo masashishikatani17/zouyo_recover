@@ -256,7 +256,7 @@
   <div class="card-header zouyo-master-head">
     <div class="zouyo-master-title">
       <img src="{{ asset('storage/images/kado_lefttop.jpg') }}" alt="…">
-      <h0>最適贈与プランナー　お客様・データ名一覧</h0>
+      <h0>最適贈与額計算システム"贈与名人"　お客様・データ名一覧</h0>
     </div>
 
     <div class="zouyo-master-toolbar">

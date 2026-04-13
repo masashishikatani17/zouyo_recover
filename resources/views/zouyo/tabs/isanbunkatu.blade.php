@@ -57,6 +57,36 @@
     overflow-x: auto;
   }
 
+
+  /* 相続人見出し帯用：左固定表ぶんのスペーサ */
+  .isan-left-spacer {
+    flex: 0 0 390px; /* 左固定表の実幅(28+36+26+185+35+80) */
+  }
+
+  .isan-header-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+    position: relative;
+    padding-top: 16px;    
+  }
+
+  .isan-right-header-table {
+    width: 630px;    
+    table-layout: fixed;
+    margin: 0;
+  }
+
+
+  .isan-header-unit {
+    position: absolute;
+    top: 0;
+    right: 0;
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+
   /* 2つのテーブルは余白を消して揃える */
   .isan-left table,
   .isan-right-wrap table {
@@ -75,8 +105,54 @@
     vertical-align: middle;
   }
 
-  /* 左テーブルの幅固定（あなたの指定のまま） */
-  #isan-left-table { width: 335px; } /* 220 + 35 + 80 = 335 */
+  /* 左テーブルの幅固定
+     col1: 大分類 / col2: 小分類(税額控除用: 狭め) / col3: 申告納税額拡張分 / col4: 項目 / col5: 番号 / col6: 合計 */
+  #isan-left-table { width: 390px; } /* 28 + 36 + 26 + 185 + 35 + 80 = 390 */
+
+
+  #isan-left-table .isan-group-col,
+  #isan-left-table .isan-subgroup-col {
+    padding: 0 !important;
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  #isan-left-table .isan-group-col .vertical-text,
+  #isan-left-table .isan-subgroup-col .vertical-text {
+    display: inline-block;
+    line-height: 1.05;
+    letter-spacing: 1px;
+  }
+
+
+  #isan-left-table .isan-subgroup-2rows {
+    padding: 0 !important;
+    font-weight: 700;
+    color: #111827;    
+  }
+
+  #isan-left-table .isan-subgroup-2rows .vertical-text,
+  #isan-left-table .isan-subgroup-2rows > div {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    line-height: 1.05;
+    white-space: normal;
+    font-weight: 700;
+  }
+
+
+  #isan-left-table .isan-subgroup-blank {
+    background-color: #fff;
+  }
+
+  #isan-left-table .isan-item-center {
+    text-align: center;
+  }
+
+
 
   /* 右側：相続人列（100px×9）なので最小幅だけ確保 */
   #isan-right-table { min-width: 900px; }
@@ -95,12 +171,15 @@
 
 
   /* 相続人ヘッダ（1段目:氏名 / 2段目:続柄） */
-  #isan-left-table thead .isan-left-head-name-row,
+  #isan-left-table thead .isan-left-head-name-row {
+    height: 44px; /* 左見出しは固定値（右の 24px + 20px に合わせる） */
+  }
+
   #isan-right-table thead .isan-heir-name-row {
     height: 24px;
   }
 
-  #isan-left-table thead .isan-left-head-rel-row,
+
   #isan-right-table thead .isan-heir-rel-row {
     height: 20px;
   }
@@ -113,14 +192,6 @@
     font-size: 11px;
     font-weight: normal;
   }
-
-  #isan-left-table thead .isan-left-head-rel-row th {
-    padding: 0;
-    font-size: 0;
-    line-height: 0;
-    border-top: none !important;
-  }
-
 
 </style>
 
@@ -362,39 +433,47 @@
     }
   @endphp
 
-  <table class="table-base me-3 mb-0 b-none" style="width: 660px;">
-    <tr>
-      <td class="bg-blue b-r-no" style="width: 500px;">相　続　人</td><td class="bg-blue b-l-no text-end" style="width: 160px;">(単位:千円)</td>
-    </tr>
-  </table>
+<div class="isan-container">
 
- <div class="isan-container">
+  <div class="isan-split mb-0">
+    <div class="isan-left-spacer" aria-hidden="true"></div>
+    <div class="isan-header-wrap">
+      <div class="isan-header-unit">(単位:千円)</div>      
+      <table class="table-base me-3 mb-0 b-none isan-right-header-table">
+        <tr>
+          <td class="bg-blue b-r-no" style="width: 630px;">相　続　人</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+
+
+
 
   <div class="isan-split">
 
     {{-- =========================
-        左：固定（項目／番号／合計）
+        左：固定（分類／小分類／項目／番号／合計）
         ========================= --}}
     <div class="isan-left">
       <table id="isan-left-table" class="table-compact-p">
         <colgroup>
-          <col style="width:245px;">
+          <col style="width:28px;">
+          <col style="width:36px;">
+          <col style="width:26px;">
+          <col style="width:185px;">          
           <col style="width:35px;">
           <col style="width:80px;">
         </colgroup>
 
-        <thead>
-          <tr class="bg-blue isan-left-head-name-row">
-            <th>項　　目</th>
-            <th>番号</th>
-            <th>合　計</th>
-          </tr>
-          <tr class="bg-blue isan-left-head-rel-row">
-            <th></th>
-            <th></th>
-            <th></th>
-          </tr>
-        </thead>
+         <thead>
+           <tr class="bg-blue isan-left-head-name-row">
+             <th colspan="4" class="text-center">項　　目</th>
+             <th class="text-center">番号</th>
+             <th class="text-center">合　計</th>
+           </tr>
+         </thead>
 
 
         <tbody>
@@ -402,7 +481,10 @@
           <!-- 相続税計算 -->
           <?php $i = 1; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">金融資産</td>
+            <td class="isan-group-col" rowspan="5">
+              <div class="vertical-text">課税価格</div>
+            </td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">金融資産</td>            
             <td class="text-center">{{ $i }}</td>
 
             {{-- 合計（表示専用） --}}
@@ -423,7 +505,7 @@
 
           <?php $i = 2; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">その他資産</td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">その他資産</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text"
@@ -437,7 +519,7 @@
 
           <?php $i = 3; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">所有財産（合計）</td>
+            <td colspan="3" class="text-center" style="font-weight: bold;">所有財産（合計）</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text"
@@ -460,7 +542,7 @@
               }
           @endphp
           <tr>
-            <td class="text-start" style="font-weight: bold;">生前贈与加算</td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">生前贈与加算</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -474,7 +556,7 @@
           {{-- 合計（所有財産 + 生前贈与加算） --}}
           <?php $i = 5; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">課税価格 合計</td>
+            <td colspan="3" class="text-center" style="font-weight: bold;">課税価格 合計</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -489,8 +571,10 @@
 
           @php
             ////////////////////////////////////////////////////////////////////
-            // 基礎控除額（30,000千円 + 6,000千円 × 法定相続人の人数）
-            // ※ この行の直前で必ず定義して、Undefined variable を防ぐ
+            // 基礎控除額
+            // ▼ 直書き禁止
+            //   - サーバー側でマスターから取得した値を優先
+            //   - 未対応時だけ現行値（30,000 / 6,000 千円）へフォールバック
             ////////////////////////////////////////////////////////////////////
             $legalHeirCount = 0;
             for ($no = 2; $no <= 10; $no++) {
@@ -514,15 +598,42 @@
                 }
             }
 
-            $basicDeductionKyen = 30000 + (6000 * $legalHeirCount);
+            $basicDeductionMeta = is_array($calc['meta'] ?? null) ? $calc['meta'] : [];
+
+            $basicDeductionBaseKyen = (int)(
+                $basicDeductionMeta['basic_deduction_base_kyen']
+                ?? $basicDeductionMeta['basic_deduction_base_amount_kyen']
+                ?? old('basic_deduction_base_kyen', request()->input('basic_deduction_base_kyen', 30000))
+            );
+
+            $basicDeductionPerHeirKyen = (int)(
+                $basicDeductionMeta['basic_deduction_per_heir_kyen']
+                ?? $basicDeductionMeta['basic_deduction_per_heir_amount_kyen']
+                ?? old('basic_deduction_per_heir_kyen', request()->input('basic_deduction_per_heir_kyen', 6000))
+            );
+
+            $basicDeductionKyen = $basicDeductionBaseKyen + ($basicDeductionPerHeirKyen * $legalHeirCount);
+
+            $basicDeductionLabel = sprintf(
+                '基礎控除額　%s千円＋%s千円×%d人',
+                number_format($basicDeductionBaseKyen),
+                number_format($basicDeductionPerHeirKyen),
+                $legalHeirCount
+            );
+
           @endphp
 
           <?php $i = 6; ?>
 
           <tr>
-
-            <td class="text-start" style="font-weight: bold;">
-              <span id="basic-deduction-label">基礎控除額　30,000千円＋6,000千円×{{ $legalHeirCount }}人</span>
+            
+            <td class="isan-group-col" rowspan="7">
+              <div class="vertical-text">各人の算出税額</div>
+            </td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">
+              <span id="basic-deduction-label">{{ $basicDeductionLabel }}</span>
+              <input type="hidden" id="basic_deduction_base_kyen" value="{{ $basicDeductionBaseKyen }}">
+              <input type="hidden" id="basic_deduction_per_heir_kyen" value="{{ $basicDeductionPerHeirKyen }}">
             </td>
 
             <td class="text-center">{{ $i }}</td>
@@ -603,7 +714,7 @@
 
           <?php $i = 7; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">課税遺産総額</td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">課税遺産総額</td>
             <td class="text-center">{{ $i }}</td>
             @php $showTotal = $sumKyenFromSummary('taxable_estate'); @endphp
             <td>
@@ -616,7 +727,7 @@
 
           <?php $i = 8; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">法定相続分</td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">法定相続分</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0 text-center"
@@ -626,7 +737,7 @@
 
           <?php $i = 9; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">相続税の総額</td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">相続税の総額</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -638,7 +749,7 @@
 
           <?php $i = 10; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">あん分割合</td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">あん分割合</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -650,7 +761,7 @@
 
           <?php $i = 11; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">算出税額</td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">算出税額</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -662,7 +773,7 @@
 
           <?php $i = 12; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">２割加算</td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">２割加算</td>
             <td class="text-center">{{ $i }}</td>
             @php
               $sumInc = 0;
@@ -681,7 +792,13 @@
 
           <?php $i = 13; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">暦年課税分の贈与税額控除額</td>
+            <td class="isan-group-col" rowspan="9">
+              <div class="vertical-text">各人の納付・還付税額</div>
+            </td>
+            <td class="isan-subgroup-col" rowspan="4">
+              <div class="vertical-text">税額控除</div>
+            </td>            
+            <td colspan="2" class="text-start" style="font-weight: bold;">暦年課税分の贈与税額控除額</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -693,7 +810,7 @@
 
           <?php $i = 14; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">配偶者の税額軽減額</td>
+            <td colspan="2" class="text-start" style="font-weight: bold;">配偶者の税額軽減額</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -705,7 +822,7 @@
 
           <?php $i = 15; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">その他の税額控除額</td>
+            <td colspan="2" class="text-start" style="font-weight: bold;">その他の税額控除額</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -717,7 +834,7 @@
 
           <?php $i = 16; ?>
           <tr>
-            <td class="text-center" style="font-weight: bold;">控除税額合計</td>
+            <td colspan="2" class="text-center" style="font-weight: bold;">控除税額合計</td>
             <td class="text-center">{{ $i }}</td>
             @php
               $__sumCredits = (int)($calc['summary']['total_gift_tax_credits'] ?? 0)
@@ -734,7 +851,7 @@
 
           <?php $i = 17; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">差引税額</td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">差引税額</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -746,7 +863,7 @@
 
           <?php $i = 18; ?>
           <tr>
-            <td class="text-start" style="font-weight: bold;">相続時精算課税分の贈与税額控除額</td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">相続時精算課税分の贈与税額控除額</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -758,7 +875,7 @@
 
           <?php $i = 19; ?>
           <tr>
-            <td class="text-center" style="font-weight: bold;">小　　　計</td>
+            <td colspan="3" class="text-center" style="font-weight: bold;">小　　　計</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -770,6 +887,9 @@
 
           <?php $i = 20; ?>
           <tr>
+            <td colspan="2" class="isan-subgroup-col isan-subgroup-2rows" rowspan="2">
+              <div>申告納税額</div>
+            </td>            
             <td class="text-start" style="font-weight: bold;">納付税額</td>
             <td class="text-center">{{ $i }}</td>
             <td>
@@ -1131,24 +1251,43 @@
     const rightHeadRows = Array.from(document.querySelectorAll('#isan-right-table thead tr'));
     const leftBodyRows  = Array.from(document.querySelectorAll('#isan-left-table tbody tr'));
     const rightBodyRows = Array.from(document.querySelectorAll('#isan-right-table tbody tr'));
+    const paytaxMergedCell = document.querySelector('#isan-left-table td.isan-subgroup-2rows');
+ 
+
 
     [...leftHeadRows, ...rightHeadRows, ...leftBodyRows, ...rightBodyRows].forEach((el) => {
       el.style.height = '';
     });
+    if (paytaxMergedCell) {
+      paytaxMergedCell.style.height = '';
+    }    
 
-    const headN = Math.min(leftHeadRows.length, rightHeadRows.length);
-    for (let i = 0; i < headN; i++) {
-      const h = Math.max(leftHeadRows[i].offsetHeight, rightHeadRows[i].offsetHeight);
-      leftHeadRows[i].style.height = h + 'px';
-      rightHeadRows[i].style.height = h + 'px';
+    // 左ヘッダは固定値で運用する
+    if (leftHeadRows.length === 1 && rightHeadRows.length >= 2) {
+      leftHeadRows[0].style.height = '44px';
     }
-
+    
     const bodyN = Math.min(leftBodyRows.length, rightBodyRows.length);
     for (let i = 0; i < bodyN; i++) {
       const h = Math.max(leftBodyRows[i].offsetHeight, rightBodyRows[i].offsetHeight);
       leftBodyRows[i].style.height = h + 'px';
       rightBodyRows[i].style.height = h + 'px';
     }
+
+
+    // 「申告納税額」(rowspan=2) は、右側の No.20 / No.21 行の合計高さに合わせる
+    if (paytaxMergedCell && leftBodyRows.length >= 21 && rightBodyRows.length >= 21) {
+      const payableIdx = 19; // No.20
+      const refundIdx  = 20; // No.21
+      const mergedHeight =
+        (rightBodyRows[payableIdx]?.offsetHeight || 0) +
+        (rightBodyRows[refundIdx]?.offsetHeight || 0);
+
+      if (mergedHeight > 0) {
+        paytaxMergedCell.style.height = mergedHeight + 'px';
+      }
+    }
+
   }
 
   window.syncIsanTableHeights = syncIsanTableHeights;
@@ -1815,6 +1954,35 @@ document.addEventListener('DOMContentLoaded', function () {
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+
+  function sanitizeNumber(str) {
+    return parseInt(String(str || '').replace(/,/g, '').replace(/[^\d\-]/g, ''), 10) || 0;
+  }
+
+  function getBasicDeductionMasterKyen() {
+    const baseEl = document.getElementById('basic_deduction_base_kyen');
+    const perEl  = document.getElementById('basic_deduction_per_heir_kyen');
+
+    return {
+      baseKyen: sanitizeNumber(baseEl ? baseEl.value : 30000) || 30000,
+      perHeirKyen: sanitizeNumber(perEl ? perEl.value : 6000) || 6000,
+    };
+  }
+
+  function setBasicDeductionMasterKyen(baseKyen, perHeirKyen) {
+    const baseEl = document.getElementById('basic_deduction_base_kyen');
+    const perEl  = document.getElementById('basic_deduction_per_heir_kyen');
+
+    if (baseEl && baseKyen !== null && baseKyen !== undefined && baseKyen !== '') {
+      baseEl.value = sanitizeNumber(baseKyen);
+    }
+    if (perEl && perHeirKyen !== null && perHeirKyen !== undefined && perHeirKyen !== '') {
+      perEl.value = sanitizeNumber(perHeirKyen);
+    }
+  }
+
+  window.setBasicDeductionMasterKyen = setBasicDeductionMasterKyen;
+
   function countHouteiByBunsi() {
     let count = 0;
 
@@ -1836,14 +2004,20 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     
     // 基礎控除額表示も同時に更新
+    const master = getBasicDeductionMasterKyen();
+    const baseKyen = master.baseKyen;
+    const perHeirKyen = master.perHeirKyen;
+    
     const label = document.getElementById('basic-deduction-label');
     if (label) {
-      label.textContent = `基礎控除額　30,000千円＋6,000千円×${count}人`;
+
+      label.textContent = `基礎控除額　${baseKyen.toLocaleString()}千円＋${perHeirKyen.toLocaleString()}千円×${count}人`;
+
     }
 
     const amountInput = document.getElementById('basic_deduction_amount');
     if (amountInput) {
-      const amount = 30000 + (6000 * count); // 単位：千円
+      const amount = baseKyen + (perHeirKyen * count); // 単位：千円      
       amountInput.value = amount.toLocaleString();
     }
 
@@ -2776,7 +2950,18 @@ document.addEventListener('DOMContentLoaded', function () {
     const left = preview.left || {};
     const members = preview.members || {};
     const previewMode = String(preview.mode || '').toLowerCase();    
-
+    
+    if (typeof window.setBasicDeductionMasterKyen === 'function') {
+      window.setBasicDeductionMasterKyen(
+        left.basic_deduction_base_kyen
+          ?? left.basic_deduction_base_amount_kyen
+          ?? null,
+        left.basic_deduction_per_heir_kyen
+          ?? left.basic_deduction_per_heir_amount_kyen
+          ?? null
+      );
+    }
+   
     isanPreviewSetValue('#isan-customer-name', left.customer_name ?? '');
     isanPreviewSetValue('#id_cash_total', left.cash_total ?? '');
     isanPreviewSetValue('#id_other_total', left.other_total ?? '');

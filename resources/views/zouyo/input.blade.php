@@ -175,7 +175,7 @@
     
 
     <img src="{{ asset('storage/images/ribbon.jpg') }}" alt="…">
-       <h13>最適贈与プランナー ・インプット表</h13>
+       <h13>最適贈与額計算システム"贈与名人"・インプット表</h13>
    <div class="wrapper"> 
       <div class="d-flex flex-wrap justify-content-end gap-2">
 
@@ -289,29 +289,29 @@
        
      <li class="nav-item" role="presentation">
         <button 
-              class="nav-link {{ isActiveTab('input04', $activeTab) }}" 
-              id="zouyo-tab-input04-nav" 
+              class="nav-link {{ isActiveTab('input05', $activeTab) }}" 
+              id="zouyo-tab-input05-nav"
               data-bs-toggle="tab" 
-              data-bs-target="#zouyo-tab-input04" 
+              data-bs-target="#zouyo-tab-input05"              
               type="button" role="tab" 
-              aria-controls="zouyo-tab-input04" 
-              aria-selected="{{ $activeTab === 'input04' ? 'true' : 'false' }}">
-              これからの贈与
+              aria-controls="zouyo-tab-input05" 
+              aria-selected="{{ $activeTab === 'input05' ? 'true' : 'false' }}">
+              遺産分割等
          </button>
      </li>
        
      <li class="nav-item" role="presentation">
         <button 
-              class="nav-link {{ isActiveTab('input05', $activeTab) }}" 
-              id="zouyo-tab-input05-nav" 
+              class="nav-link {{ isActiveTab('input04', $activeTab) }}" 
+              id="zouyo-tab-input04-nav" 
               data-bs-toggle="tab" 
-              data-bs-target="#zouyo-tab-input05" 
+              data-bs-target="#zouyo-tab-input04" 
               type="button" 
               role="tab" 
-              aria-controls="zouyo-tab-input05" 
-              aria-selected="{{ $activeTab === 'input05' ? 'true' : 'false' }}">
-              遺産分割等
-         </button>
+              aria-controls="zouyo-tab-input04" 
+              aria-selected="{{ $activeTab === 'input04' ? 'true' : 'false' }}">
+              これからの贈与
+</button>
      </li>
        
      <li class="nav-item" role="presentation">
@@ -385,8 +385,7 @@
                  @if($activeTab !== 'input04') hidden @endif>
                @include('zouyo.tabs.future_zouyo')
             </div>
-            
-            
+
             <div class="tab-pane {{ isShowActiveTab('input05', $activeTab) }}"
                  id="zouyo-tab-input05"
                  role="tabpanel"
@@ -394,7 +393,6 @@
                  @if($activeTab !== 'input05') hidden @endif>              
               @include('zouyo.tabs.isanbunkatu')
             </div>
-            
             
             <div class="tab-pane {{ isShowActiveTab('input06', $activeTab) }}"
                  id="zouyo-tab-input06"
