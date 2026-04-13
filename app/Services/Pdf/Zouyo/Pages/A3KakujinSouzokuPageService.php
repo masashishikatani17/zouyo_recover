@@ -482,6 +482,21 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
             Arr::get($prefillFamily, '1.other_thousand'),
             Arr::get($prefillFamily, '1.other'),
         ], 0);
+        
+        /**
+         * ▼ その他資産の補完
+         *
+         * isanbunkatu.blade と同じ SoT に合わせる。
+         * 画面側では
+         *   $___baseOtherKyen = max(0, $___basePropertyKyen - $___baseCashKyen)
+         * で算出しているため、PDF側でも
+         *   その他資産 = 所有財産合計 - 金融資産合計
+         * を優先補完する。
+        */
+        if ($basePropertyKyen > 0 && $baseFinancialKyen >= 0) {
+            $baseOtherKyen = max(0, $basePropertyKyen - $baseFinancialKyen);
+        }
+        
 
         $financialShareKByHeir = [];
         $otherShareKByHeir     = [];
@@ -756,16 +771,16 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
             // 課税価格ブロック
             // A3_05_pr_kakusouzoku.pdf の現物罫線中央に合わせた実測値
             'financial_assets'         => 134.5, // ①
-            'other_assets'             => 139.1, // ②
+            'other_assets'             => 141.0, // ②
             'property_total'           => 147.7, // ③
-            'lifetime_gift'            => 165.0, // ④
-            'taxable_total'            => 171.5, // ⑤
-            'basic_deduction'          => 178.0, // ⑥
-            'taxable_estate'           => 184.5, // ⑦
-            'law_share'                => 191.0, // ⑧
-            'legal_tax'                => 197.6, // ⑨
-            'anbun_ratio'              => 204.1, // ⑩
-            'sanzutsu_tax'             => 210.6, // ⑪
+            'lifetime_gift'            => 154.0, // ④
+            'taxable_total'            => 161.0, // ⑤
+            'basic_deduction'          => 167.2, // ⑥
+            'taxable_estate'           => 174.0, // ⑦
+            'law_share'                => 180.0, // ⑧
+            'legal_tax'                => 187.6, // ⑨
+            'anbun_ratio'              => 194.1, // ⑩
+            'sanzutsu_tax'             => 200.6, // ⑪
             'twowari'                  => 217.1, // ⑫
             'calendar_gift_credit'     => 223.7, // ⑬
             'spouse_relief'            => 230.2, // ⑭
@@ -984,15 +999,28 @@ class A3KakujinSouzokuPageService implements ZouyoPdfPageInterface
                         
                 $member = $prefillInheritance['members'][$no] ?? [];
 
-                $heirFinancialKyen = (int)($financialShareKByHeir[$no] ?? 0);
-                $heirOtherKyen     = (int)($otherShareKByHeir[$no] ?? 0);
-
                 // ▼ 所有財産（千円）
                 if ($methodCode === 9) {
                     $heirPropertyKyen = (int)($member['taxable_manu'] ?? $member['taxable_auto'] ?? 0);
                 } else {                    
                     $heirPropertyKyen = (int)($propertyShareKByHeir[$no] ?? 0);
                 }
+
+
+                $heirFinancialKyen = (int)($financialShareKByHeir[$no] ?? 0);
+                $heirOtherKyen     = (int)($otherShareKByHeir[$no] ?? 0);
+
+                /**
+                 * ▼ 各相続人のその他資産を補完
+                 *
+                 * isanbunkatu.blade と同じ考え方で、
+                 * その他資産 = 所有財産(合計) - 金融資産
+                 * を優先補完する。
+                */
+                if ($heirPropertyKyen > 0 && $heirFinancialKyen >= 0) {
+                    $heirOtherKyen = max(0, $heirPropertyKyen - $heirFinancialKyen);
+                }
+
 
                 // 課税価格内訳が取れている場合はその合計を優先
                 if (($heirFinancialKyen + $heirOtherKyen) > 0) {
