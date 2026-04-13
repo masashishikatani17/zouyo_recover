@@ -85,10 +85,6 @@ class AppServiceProvider extends ServiceProvider
         } catch (\Throwable $e) {
             // 起動直後のCLI等で request() が無いケースを無害化
         }
-    
-        
-        
-        
         
     }
 
