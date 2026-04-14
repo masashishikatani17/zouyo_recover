@@ -109,14 +109,14 @@ class A3SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
         $rowHeight = 5.6;
 
         $rowY = [
-            'age'           => 36.8,
-            'prop_amount'   => 42.4,
-            'gift_decr_cal' => 48.0,
-            'gift_decr_set' => 53.5,
-            'estate_after'  => 59.0,
-            'incl_cal'      => 64.6,
-            'incl_set'      => 70.2,
-            'taxable'       => 75.8,
+            'age'           => 39.0,
+            'prop_amount'   => 46.5,
+            'gift_decr_cal' => 53.0,
+            'gift_decr_set' => 59.5,
+            'estate_after'  => 66.5,
+            'incl_cal'      => 74.0,
+            'incl_set'      => 81.0,
+            'taxable'       => 88.0,
         ];
 
         $pdf->SetFont('mspgothic03', '', 8.5);        
@@ -250,24 +250,23 @@ class A3SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
         $middleRowHeight = 5.4;
 
         $middleRowY = [
-            'age'                    => 105.3,
-            'taxable_price'          => 110.9,
-            'basic_deduction'        => 116.5,
-            'taxable_estate'         => 122.1,
-            'legal_share'            => 127.8,
-            'sozoku_tax_total'       => 133.4,
-            'anbun_ratio'            => 139.0,
-            'sanzutsu_tax_total'     => 144.7,
-            'two_wari'               => 150.3,
-            'gift_tax_credit'        => 155.9,
-            'spouse_relief'          => 161.3,
-            'other_credit'           => 166.7,
-            'credits_total'          => 172.3,
-            'sashihiki_tax'          => 178.0,
-            'settlement_gift_tax'    => 183.6,
-            'final_after_settlement' => 189.2,
-            'payable_tax'            => 194.9,
-            'refund_tax'             => 200.5,
+            'age'                    => 128.4,
+            'taxable_price'          => 135.8,
+            'basic_deduction'        => 142.9,
+            'taxable_estate'         => 150.0,
+            'legal_share'            => 157.1,
+            'sozoku_tax_total'       => 163.4,
+            'anbun_ratio'            => 170.7,
+            'sanzutsu_tax_total'     => 177.4,
+            'two_wari'               => 184.4,
+            'gift_tax_credit'        => 191.4,
+            'spouse_relief'          => 198.4,
+            'other_credit'           => 205.4,
+            'credits_total'          => 212.4,
+            'sashihiki_tax'          => 219.0,
+            'settlement_gift_tax'    => 226.0,
+            'payable_tax'            => 232.8,
+            'refund_tax'             => 239.8,
         ];
 
         $pdf->SetFont('mspgothic03', '', 8.2);
@@ -352,11 +351,17 @@ class A3SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
             // 相続時精算課税分の贈与税額控除額
             $this->drawA3TableCell($pdf, $this->formatTrendAmountCell($row['settlement_gift_tax'] ?? null), $xx, $middleRowY['settlement_gift_tax'], $middleColWidth, $middleRowHeight, 'R');
 
-            // 小計
-            $this->drawA3TableCell($pdf, $this->formatTrendAmountCell($row['final_after_settlement'] ?? null), $xx, $middleRowY['final_after_settlement'], $middleColWidth, $middleRowHeight, 'R');
+             // 納付税額
+            $this->drawA3TableCell(
+                $pdf,
+                $this->formatTrendAmountCell($row['payable_tax'] ?? $row['final_after_settlement'] ?? null),
+                $xx,
+                $middleRowY['payable_tax'],
+                $middleColWidth,
+                $middleRowHeight,
+                'R'
+            );
 
-            // 納付税額
-            $this->drawA3TableCell($pdf, $this->formatTrendAmountCell($row['payable_tax'] ?? null), $xx, $middleRowY['payable_tax'], $middleColWidth, $middleRowHeight, 'R');
 
             // 還付税額
             $this->drawA3TableCell($pdf, $this->formatTrendAmountCell($row['refund_tax'] ?? null), $xx, $middleRowY['refund_tax'], $middleColWidth, $middleRowHeight, 'R');
@@ -393,8 +398,8 @@ class A3SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
                 'L',
                 0,
                 0,
-                17.0,
-                206.0
+                25.0,
+                248.0
             );
         }
 
@@ -402,70 +407,72 @@ class A3SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
         // =========================
         // 下表：贈与による減税効果
         // =========================
-        $effectRows = $this->getZouyoGenzeiKokaTrendRows($dataId, $familyRows, $resultsData, $header);
+        // 別ページへ移設予定のため、このページでは描画しない。
+        // getZouyoGenzeiKokaTrendRows() などのロジックは、新ページ作成時の参考用として残す。
+        $shouldRenderBottomEffectTable = false;
 
-        if (empty($effectRows)) {
-            \Log::warning('[SouzokukazeikakakuPageService] No bottom effect rows found', [
-                'data_id' => $dataId,
-            ]);
-        } else {
-            $bottomStartX    = 75.6;
-            $bottomColWidth  = 15.9;
-            $bottomRowHeight = 5.4;
+        if ($shouldRenderBottomEffectTable) {
+            $effectRows = $this->getZouyoGenzeiKokaTrendRows($dataId, $familyRows, $resultsData, $header);
 
-            $bottomRowY = [
-                'age'           => 229.6,
-                'sozoku_before' => 235.2,
-                'gift_before'   => 240.7,
-                'total_before'  => 246.5,
-                'sozoku_after'  => 252.0,
-                'gift_after'    => 257.5,
-                'total_after'   => 263.0,
-                'diff'          => 268.5,
-            ];
+            if (empty($effectRows)) {
+                \Log::warning('[SouzokukazeikakakuPageService] No bottom effect rows found', [
+                    'data_id' => $dataId,
+                ]);
+            } else {
+                $bottomStartX    = 75.6;
+                $bottomColWidth  = 15.9;
+                $bottomRowHeight = 5.4;
 
-            $pdf->SetFont('mspgothic03', '', 8.2);
+                $bottomRowY = [
+                    'age'           => 229.6,
+                    'sozoku_before' => 235.2,
+                    'gift_before'   => 240.7,
+                    'total_before'  => 246.5,
+                    'sozoku_after'  => 252.0,
+                    'gift_after'    => 257.5,
+                    'total_after'   => 263.0,
+                    'diff'          => 268.5,
+                ];
 
-            foreach ($effectRows as $i => $row) {
-                if ($i > 20) {
-                    \Log::info('[SouzokukazeikakakuPageService] bottom table columns truncated', [
-                        'data_id' => $dataId,
-                        'column_index' => $i,
-                    ]);
-                    break;
+                $pdf->SetFont('mspgothic03', '', 8.2);
+
+                foreach ($effectRows as $i => $row) {
+                    if ($i > 20) {
+                        \Log::info('[SouzokukazeikakakuPageService] bottom table columns truncated', [
+                            'data_id' => $dataId,
+                            'column_index' => $i,
+                        ]);
+                        break;
+                    }
+
+                    $xx = $bottomStartX + ($bottomColWidth * $i);
+
+                    //年齢
+                    $this->drawA3TableCell($pdf, (string)($row['age'] ?? ''), $xx + 2.0, $bottomRowY['age'], $bottomColWidth, $bottomRowHeight, 'C');
+                    
+                    //対策前
+                    //相続税額
+                    $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['sozoku_before'] ?? null), $xx, $bottomRowY['sozoku_before'], $bottomColWidth, $bottomRowHeight, 'R');
+                    
+                    //贈与税額
+                    $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['gift_before'] ?? null), $xx, $bottomRowY['gift_before'], $bottomColWidth, $bottomRowHeight, 'R');
+                    
+                    //税額合計
+                    $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['total_before'] ?? null), $xx, $bottomRowY['total_before'], $bottomColWidth, $bottomRowHeight, 'R');
+                    
+                    //対策後
+                    //相続税額
+                    $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['sozoku_after'] ?? null), $xx, $bottomRowY['sozoku_after'], $bottomColWidth, $bottomRowHeight, 'R');
+                    
+                    //贈与税額
+                    $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['gift_after'] ?? null), $xx, $bottomRowY['gift_after'], $bottomColWidth, $bottomRowHeight, 'R');
+                    
+                    //税額合計
+                    $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['total_after'] ?? null), $xx, $bottomRowY['total_after'], $bottomColWidth, $bottomRowHeight, 'R');
+                    
+                    //減税効果　対策後-対策前
+                    $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['diff'] ?? null), $xx, $bottomRowY['diff'], $bottomColWidth, $bottomRowHeight, 'R');
                 }
-
-                $xx = $bottomStartX + ($bottomColWidth * $i);
-
-                //年齢
-                $this->drawA3TableCell($pdf, (string)($row['age'] ?? ''), $xx + 2.0, $bottomRowY['age'], $bottomColWidth, $bottomRowHeight, 'C');
-                
-                //対策前
-                //相続税額
-                $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['sozoku_before'] ?? null), $xx, $bottomRowY['sozoku_before'], $bottomColWidth, $bottomRowHeight, 'R');
-                
-                //贈与税額
-                $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['gift_before'] ?? null), $xx, $bottomRowY['gift_before'], $bottomColWidth, $bottomRowHeight, 'R');
-                
-                //税額合計
-                $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['total_before'] ?? null), $xx, $bottomRowY['total_before'], $bottomColWidth, $bottomRowHeight, 'R');
-                
-                //対策後
-                //相続税額
-                $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['sozoku_after'] ?? null), $xx, $bottomRowY['sozoku_after'], $bottomColWidth, $bottomRowHeight, 'R');
-                
-                //贈与税額
-                $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['gift_after'] ?? null), $xx, $bottomRowY['gift_after'], $bottomColWidth, $bottomRowHeight, 'R');
-                
-                //税額合計
-                $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['total_after'] ?? null), $xx, $bottomRowY['total_after'], $bottomColWidth, $bottomRowHeight, 'R');
-                
-                
-                //減税効果　対策後-対策前
-                $this->drawA3TableCell($pdf, $this->formatEffectTrendAmountCell($row['diff'] ?? null), $xx, $bottomRowY['diff'], $bottomColWidth, $bottomRowHeight, 'R');
-            
-                
-                
             }
         }
     }
