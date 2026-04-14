@@ -158,7 +158,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
             $pdf->SetFont('mspgothic03', '', 10);
             $pdf->SetTextColor(0, 0, 0);
             $pageNoZenkaku = mb_convert_kana((string)$pageNo, 'N', 'UTF-8');
-            $pdf->MultiCell(38, 5, '５－' . $pageNoZenkaku . 'ページ', 0, 'R', 0, 0, 375, 277);
+            $pdf->MultiCell(38, 5, '５－' . $pageNoZenkaku . 'ページ', 0, 'R', 0, 0, 375, 280);
 
             // 上段
             if (isset($group[0])) {
