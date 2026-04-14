@@ -2,6 +2,7 @@
 
 namespace App\Services\Pdf\Zouyo\Pages;
 
+use App\Models\FutureGiftHeader;
 use App\Models\FutureGiftPlanEntry;
 use App\Models\FutureGiftRecipient;
 use App\Models\PastGiftCalendarEntry;
@@ -200,7 +201,9 @@ class A3KakuzoyoPlanPageService implements ZouyoPdfPageInterface
         }
 
         //コメント
-        [$futureGiftMonth, $futureGiftDay] = $this->resolveFirstGiftMonthDay($payload);
+        [$futureGiftMonth, $futureGiftDay] = $this->resolveFirstGiftMonthDay($payload, $dataId);
+         
+        
         
         $strCom = '※';
         $strCom .= sprintf(
@@ -663,46 +666,50 @@ private function resolveDonorName(int $dataId, array $family): string
 
 
     /**
-     * 第1回目贈与年月日の月日を解決する。
-     * future_zouyo.blade の future_base_month / future_base_day を SoT とし、
-     * payload の header 配下を最優先で参照する。
-     * 値が取得できない場合のみ従来どおり 5/6 を既定値とする。
+     * save 済みの future_gift_headers を最優先で参照する。
+     * payload は補助的なフォールバックにとどめる。
+     * 値が取得できない場合のみ従来どおり 1/1 を既定値とする。     * 
      *
      * @return array{0:int,1:int}
      */
-    private function resolveFirstGiftMonthDay(array $payload): array
-    {
-        $monthCandidates = [
-            $payload['header']['month'] ?? null,
-            $payload['future_base_month'] ?? null,
-            $payload['header_month'] ?? null,
-        ];
+    private function resolveFirstGiftMonthDay(array $payload, int $dataId): array
+     {
 
-        $dayCandidates = [
-            $payload['header']['day'] ?? null,
-            $payload['future_base_day'] ?? null,
-            $payload['header_day'] ?? null,
-        ];
+        if ($dataId > 0) {
+            $header = FutureGiftHeader::query()
+                ->where('data_id', $dataId)
+                ->first(['base_month', 'base_day']);
 
-        $month = 0;
-        foreach ($monthCandidates as $candidate) {
-            $value = $this->toIntValue($candidate);
-            if ($value >= 1 && $value <= 12) {
-                $month = $value;
-                break;
+            if ($header) {
+                $month = $this->toIntValue($header->base_month ?? null);
+                $day   = $this->toIntValue($header->base_day ?? null);
+
+                if ($month >= 1 && $month <= 12 && $day >= 1 && $day <= 31) {
+                    return [$month, $day];
+                }
             }
         }
+        
+        $month = $this->toIntValue(
+            $payload['header']['month']
+                ?? $payload['future_base_month']
+                ?? $payload['header_month']
+                ?? null
+        );
 
-        $day = 0;
-        foreach ($dayCandidates as $candidate) {
-            $value = $this->toIntValue($candidate);
-            if ($value >= 1 && $value <= 31) {
-                $day = $value;
-                break;
-            }
+        $day = $this->toIntValue(
+            $payload['header']['day']
+                ?? $payload['future_base_day']
+                ?? $payload['header_day']
+                ?? null
+        );
+
+        if ($month >= 1 && $month <= 12 && $day >= 1 && $day <= 31) {
+            return [$month, $day];
         }
 
-        return [$month ?: 1, $day ?: 1];
+        return [1, 1];         //1月1日
+
     }
 
 
