@@ -91,15 +91,19 @@
             </label>
      
             <label>
-                <input type="checkbox" name="pages_a3[]" value="8" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(8, $pdfSelectedPagesA3, true))> 相続人別財産の推移
+                <input type="checkbox" name="pages_a3[]" value="8" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(8, $pdfSelectedPagesA3, true))> 贈与による減税効果
             </label>
-     
+      
             <label>
-                <input type="checkbox" name="pages_a3[]" value="9" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(9, $pdfSelectedPagesA3, true))> 各人別財産の推移
+                <input type="checkbox" name="pages_a3[]" value="9" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(9, $pdfSelectedPagesA3, true))> 相続人別財産の推移
             </label>
-     
+      
             <label>
-                <input type="checkbox" name="pages_a3[]" value="10" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(10, $pdfSelectedPagesA3, true))> おわりに
+                <input type="checkbox" name="pages_a3[]" value="10" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(10, $pdfSelectedPagesA3, true))> 各人別財産の推移
+            </label>
+
+            <label>
+                <input type="checkbox" name="pages_a3[]" value="11" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(11, $pdfSelectedPagesA3, true))> おわりに
             </label>
              
         </fieldset>

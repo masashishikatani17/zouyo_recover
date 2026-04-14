@@ -13,6 +13,7 @@ use App\Services\Pdf\Zouyo\Pages\A3KakuzoyoPlanPageService;
 use App\Services\Pdf\Zouyo\Pages\A3FamilyGiftPlanPageService;
 use App\Services\Pdf\Zouyo\Pages\A3KakujinZouyoPageService;
 use App\Services\Pdf\Zouyo\Pages\A3SouzokukazeikakakuPageService;
+use App\Services\Pdf\Zouyo\Pages\A3ZouyoGenzeikokaPageService;
 use App\Services\Pdf\Zouyo\Pages\A3SouzokuninzaisansuiiPageService;
 use App\Services\Pdf\Zouyo\Pages\A3KakujinzaisansuiiPageService;
 use App\Services\Pdf\Zouyo\Pages\A3OwariniPageService;
@@ -30,9 +31,10 @@ use App\Services\Pdf\Zouyo\Pages\A3OwariniPageService;
  *  5: 各人別贈与額
  *  6: （廃止）
  *  7: 贈与後の相続税
- *  8: 相続人別財産の推移
- *  9: 各人別財産の推移
- * 10: おわりに
+ *  8: 贈与による減税効果
+ *  9: 相続人別財産の推移
+ * 10: 各人別財産の推移
+ * 11: おわりに
 */
 class ZouyoA3PdfGenerator
 {
@@ -50,9 +52,10 @@ class ZouyoA3PdfGenerator
         '4' => A3KakuzoyoPlanPageService::class,
         '5' => A3KakujinZouyoPageService::class,
         '7' => A3SouzokukazeikakakuPageService::class,
-        '8' => A3SouzokuninzaisansuiiPageService::class,
-        '9' => A3KakujinzaisansuiiPageService::class,
-        '10' => A3OwariniPageService::class,
+        '8' => A3ZouyoGenzeikokaPageService::class,
+        '9' => A3SouzokuninzaisansuiiPageService::class,
+        '10' => A3KakujinzaisansuiiPageService::class,
+        '11' => A3OwariniPageService::class,
     ];
 
     public function __construct(
