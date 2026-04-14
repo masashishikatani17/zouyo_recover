@@ -112,7 +112,7 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         $pdf->MultiCell(
             $pageLabelW,
             $pageLabelH,
-            '(3ページ)',
+            '３ページ',
             $wakusen,
             'R',
             0,

@@ -105,7 +105,7 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
         $wakusen = 0;
         $x = 375;
         $y = 277;
-        $pdf->MultiCell(30, 6, '(9ページ)', $wakusen, 'R', 0, 0, $x, $y);
+        $pdf->MultiCell(30, 6, '９ページ', $wakusen, 'R', 0, 0, $x, $y);
 
         $layout = $this->buildLayout();
         $series = $this->buildSeries($targets, $resultsData);

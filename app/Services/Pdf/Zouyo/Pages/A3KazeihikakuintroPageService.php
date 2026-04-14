@@ -47,7 +47,7 @@ class A3KazeihikakuintroPageService implements ZouyoPdfPageInterface
         $pdf->MultiCell(
             $pageLabelW,
             $pageLabelH,
-            '(2ページ)',
+            '２ページ',
             $wakusen,
             'R',
             0,

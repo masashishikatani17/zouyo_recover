@@ -167,7 +167,9 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
             $pageNo++;
             $pdf->SetFont('mspgothic03', '', 10);
             $pdf->SetTextColor(0, 0, 0);
-        $pdf->MultiCell(28, 5, '(8 - ' . $pageNo . 'ページ)', 0, 'R', 0, 0, 386, 286);
+            
+            $pageNoZenkaku = mb_convert_kana((string)$pageNo, 'N', 'UTF-8');
+            $pdf->MultiCell(28, 5, '８－' . $pageNoZenkaku . 'ページ', 0, 'R', 0, 0, 386, 286);
 
             foreach ($chunk as $index => $info) {
                 $this->drawPersonSection(

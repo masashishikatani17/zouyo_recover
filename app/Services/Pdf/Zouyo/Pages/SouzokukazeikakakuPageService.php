@@ -42,7 +42,7 @@ class SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
         $wakusen = 0;
         $x = 255;
         $y = 190;
-        $pdf->MultiCell(30, 6, '(6ページ)', $wakusen, 'R', 0, 0, $x, $y);
+        $pdf->MultiCell(30, 6, '６ページ', $wakusen, 'R', 0, 0, $x, $y);
 
 
         // family テーブルから氏名を取得

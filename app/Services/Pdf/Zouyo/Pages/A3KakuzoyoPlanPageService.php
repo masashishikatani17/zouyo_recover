@@ -46,7 +46,7 @@ class A3KakuzoyoPlanPageService implements ZouyoPdfPageInterface
         $y = max(0, $size['height'] - $pageLabelH - $bottomMargin);
 
         $pdf->SetFont('mspgothic03', '', 10);
-        $pdf->MultiCell($pageLabelW, $pageLabelH, '(4ページ)', $wakusen, 'R', 0, 0, $x, $y);
+        $pdf->MultiCell($pageLabelW, $pageLabelH, '４ページ', $wakusen, 'R', 0, 0, $x, $y);
 
         if ($dataId <= 0) {
             return;

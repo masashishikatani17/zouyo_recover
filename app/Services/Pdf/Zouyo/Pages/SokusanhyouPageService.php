@@ -30,7 +30,7 @@ class SokusanhyouPageService implements ZouyoPdfPageInterface
         $wakusen = 0;
         $x = 255;
         $y = 183;
-        $pdf->MultiCell(30, 6, '(3ページ)', $wakusen, 'R', 0, 0, $x, $y);
+        $pdf->MultiCell(30, 6, '３ページ', $wakusen, 'R', 0, 0, $x, $y);
 
         /*
         //外枠ボックス

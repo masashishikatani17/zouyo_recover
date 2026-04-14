@@ -240,7 +240,8 @@ class KakujinZouyoPageService implements ZouyoPdfPageInterface
         $wakusen = 0;
         $x = 255;
         $y = 200;
-        $pdf->MultiCell(30, 5, '(5 - ' . $pageNo . 'ページ)', $wakusen, 'R', 0, 0, $x, $y);
+        $pageNoZenkaku = mb_convert_kana((string)$pageNo, 'N', 'UTF-8');
+        $pdf->MultiCell(30, 5, '５－' . $pageNoZenkaku . 'ページ', $wakusen, 'R', 0, 0, $x, $y);
 
 
         $pdf->SetFont('mspgothic03', '', 10);

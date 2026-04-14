@@ -32,7 +32,7 @@ class HajimeniPageService implements ZouyoPdfPageInterface
         $wakusen = 0;
         $x = 255;
         $y = 190;
-        $pdf->MultiCell(30, 6, '(1ページ)', $wakusen, 'R', 0, 0, $x, $y);
+        $pdf->MultiCell(30, 6, '１ページ', $wakusen, 'R', 0, 0, $x, $y);
 
 
 

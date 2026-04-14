@@ -44,7 +44,7 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
 
     // ページ番号
         $pdf->SetFont('mspgothic03', '', 10);
-        $pdf->MultiCell(30, 6, '(7ページ)', 0, 'R', 0, 0, 375.0, 277.0);
+        $pdf->MultiCell(30, 6, '７ページ', 0, 'R', 0, 0, 375.0, 277.0);
 
         $header = is_array($payload['header'] ?? null) ? $payload['header'] : [];
 
