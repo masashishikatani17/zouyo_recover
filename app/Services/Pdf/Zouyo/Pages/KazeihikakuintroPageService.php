@@ -30,7 +30,7 @@ class KazeihikakuintroPageService implements ZouyoPdfPageInterface
         $wakusen = 0;
         $x = 255;
         $y = 184;
-        $pdf->MultiCell(30, 5, '(2ページ)', $wakusen, 'R', 0, 0, $x, $y);
+        $pdf->MultiCell(30, 5, '２ページ', $wakusen, 'R', 0, 0, $x, $y);
 
         /*
         //外枠ボックス

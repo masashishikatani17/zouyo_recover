@@ -618,7 +618,7 @@
                    name="cal_cum[{{ $i }}]"
                    style="ime-mode: disabled; background-color: #f0f0f0;" 
                    readonly tabindex="-1" inputmode="numeric"
-                   value="0">
+                   value="{{ old('cal_cum.'.$i, isset($prefillFuture['plan']['cal_cum'][$i]) ? number_format($prefillFuture['plan']['cal_cum'][$i]) : '') }}">
           </td>
 
 
@@ -1188,7 +1188,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
       const recalcAllRowsCal = () => {
         
           try { syncInheritBaseDateFromFamily(); } catch (_) {}
-        
+
           const rn = document.getElementById('future-recipient-no')?.value || '';
           // ★ 受贈者フィルタで使用する現在値（未定義参照の修正）
           const rnSel = getCurrentRecipientNo();
@@ -1247,9 +1247,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
           
               let sumWithin3K = 0;
               let sumOver3K = 0;
-              let sumPastWithin3K = 0;
-              let sumPastOver3K = 0;
-          
+
               for (const j of rows) {
                 const dt = giftDates[j];
                 const valK = toInt(document.querySelector(`input[name="cal_amount[${j}]"]`)?.value, 0);
@@ -1259,47 +1257,32 @@ const calcRekinenCumK = (rekinen, deathDate) => {
                 else sumOver3K += valK;
               }
           
+              // ② 過年度分も「その行の死亡年」を基準に同じルックバックルールで再判定する
+              const OVER3_DEDUCTION_K = getCalendarCumOver3DeductionK();
+              let sumPastWithin3K = 0;
+              let sumPastOver3K = 0;
 
+              if (window.__LAST_FUTURE_PAYLOAD?.rekinen) {
+                const pastSplit = calcRekinenSplit(window.__LAST_FUTURE_PAYLOAD.rekinen, deathDate);
+                sumPastWithin3K += Number(pastSplit.within3K || 0);
+                sumPastOver3K   += Number(pastSplit.over3K || 0);
+              } else {
+              const _pg = Array.isArray(window.PAST_GIFTS) ? window.PAST_GIFTS : [];
+                if (_pg.length > 0) {
+                  const pastSplit = calcPastCalendarSplitFromPastGifts(_pg, deathDate, rnSel);
+                  sumPastWithin3K += Number(pastSplit.within3K || 0);
+                  sumPastOver3K   += Number(pastSplit.over3K || 0);
+                }
+              }
 
-                    // ② 過年度贈与（window.PAST_GIFTS）も同一ルールで加算
-                    //    期待形式: { y, m, d, k }  ※k: 千円
-                    // ▼ PAST_GIFTS が配列でも「空」なら rekinen をフォールバック使用する
-                    const _pg = Array.isArray(window.PAST_GIFTS) ? window.PAST_GIFTS : [];
-                    if (_pg.length > 0) {
-                       // 現在の受贈者のみ集計
-                      for (const g of _pg.filter(x => !x.rn || String(x.rn) === rnSel)) {
-                         const gy = Number(g?.y || g?.year || 0);
-                         const gm = Number(g?.m || g?.month || 0);
-                         const gd = Number(g?.d || g?.day || 0);
-                         const k  = Number(g?.k || g?.amount_k || 0);
-                         if (!gy || !gm || !gd || !k) continue;
-                         const dt = new Date(gy, Math.max(0, Math.min(11, gm - 1)), Math.max(1, Math.min(31, gd)));
-                         if (dt < rangeStart || dt > rangeEnd) continue;
-                         if (dt >= threeYearsAgo) sumPastWithin3K += k; else sumPastOver3K += k;
-                       }
-                    }
-                    if (_pg.length === 0 && window.__LAST_FUTURE_PAYLOAD?.rekinen) {
-                       // ★ フォールバック：サーバ返却の rekinen から分割集計
-                       const split = calcRekinenSplit(window.__LAST_FUTURE_PAYLOAD.rekinen, deathDate);
-                       sumPastWithin3K += split.within3K;
-                       sumPastOver3K   += split.over3K;
-                    }
+              // ③ 各行の累計は
+              //    「過年度分（その行基準で再判定）」＋「将来分（その行まで）」で合算する
+              const totalWithin3K = sumPastWithin3K + sumWithin3K;
+              const totalOver3K   = sumPastOver3K   + sumOver3K;
+              const cumK = totalWithin3K + Math.max(0, totalOver3K - OVER3_DEDUCTION_K);
 
-
-                    // ③ 両方の合計を足し合わせる
-                    const totalWithin3K = sumWithin3K + sumPastWithin3K;
-                    const totalOver3K = sumOver3K + sumPastOver3K;
-                    
-                    // ④ 累計額の計算
-                    const OVER3_DEDUCTION_K = getCalendarCumOver3DeductionK();                    
-                    let cumK = totalWithin3K + Math.max(0, totalOver3K - OVER3_DEDUCTION_K);
-                    
-              //console.debug(`2025_11_10_01 Row ${i}: sumPastOver3K=${sumPastOver3K}, sumOver3K=${sumOver3K}, cumK=${cumK}`);
-
-
-                    // ★ 最終的な累計額をセット（期間判定済みの過年度も含む）
-                    setK('cal_cum', i, Math.trunc(cumK));
-
+              // ★ 最終的な累計額をセット（ルックバック適用後）
+              setK('cal_cum', i, Math.trunc(cumK));
 
                     //setK('cal_cum', 0, 0);
                     
@@ -1805,16 +1788,110 @@ document.addEventListener('DOMContentLoaded', function () {
       // ★ 公開（applyFuturePayload から使用する保険計算）
       window.calcCumFromRekinen = calcCumFromRekinen;
 
+      const calcPastOnlyCumFromPastGifts = (pastGifts, deathDate, recipientNo = '') => {
+        if (!Array.isArray(pastGifts) || !(deathDate instanceof Date)) return null;
+
+        const [rangeStart, rangeEnd] = getLookbackRange(deathDate);
+        const threeYearsAgo = new Date(deathDate);
+        threeYearsAgo.setFullYear(deathDate.getFullYear() - 3);
+
+        let within3K = 0;
+        let over3K = 0;
+
+        pastGifts
+          .filter((g) => {
+            if ((g?.t ?? '') === 'seisan') return false; // 精算課税は除外
+            if (!recipientNo) return true;
+            return !g.rn || String(g.rn) === String(recipientNo);
+          })
+          .forEach((g) => {
+            const y = Number(g?.y || g?.year || 0);
+            const m = Number(g?.m || g?.month || 0);
+            const d = Number(g?.d || g?.day || 0);
+            const k = Number(g?.k || g?.amount_k || 0);
+            if (!y || !m || !d || !k) return;
+
+            const dt = new Date(
+              y,
+              Math.max(0, Math.min(11, m - 1)),
+              Math.max(1, Math.min(31, d))
+            );
+
+            if (dt < rangeStart || dt > rangeEnd) return;
+            if (dt >= threeYearsAgo) within3K += Math.trunc(k);
+            else over3K += Math.trunc(k);
+          });
+
+        const OVER3_DEDUCTION_K = getCalendarCumOver3DeductionK();
+        return within3K + Math.max(0, over3K - OVER3_DEDUCTION_K);
+      };
+
+
+      const calcPastCalendarSplitFromPastGifts = (pastGifts, deathDate, recipientNo = '') => {
+        const res = { within3K: 0, over3K: 0 };
+        if (!Array.isArray(pastGifts) || !(deathDate instanceof Date)) return res;
+
+        const [rangeStart, rangeEnd] = getLookbackRange(deathDate);
+        const threeYearsAgo = new Date(deathDate);
+        threeYearsAgo.setFullYear(deathDate.getFullYear() - 3);
+
+        pastGifts
+          .filter((g) => {
+            if ((g?.t ?? '') === 'seisan') return false; // 精算課税は除外
+            if (!recipientNo) return true;
+            return !g.rn || String(g.rn) === String(recipientNo);
+          })
+          .forEach((g) => {
+            const y = Number(g?.y || g?.year || 0);
+            const m = Number(g?.m || g?.month || 0);
+            const d = Number(g?.d || g?.day || 0);
+            const k = Number(g?.k || g?.amount_k || 0);
+            if (!y || !m || !d || !k) return;
+
+            const dt = new Date(
+              y,
+              Math.max(0, Math.min(11, m - 1)),
+              Math.max(1, Math.min(31, d))
+            );
+
+            if (dt < rangeStart || dt > rangeEnd) return;
+            if (dt >= threeYearsAgo) res.within3K += Math.trunc(k);
+            else res.over3K += Math.trunc(k);
+          });
+
+        return res;
+      };
 
 
       const recalcPastOnlyCum0 = () => {
       
+        const baseYear = getFutureBaseYear();
+        if (!baseYear) {
+          setK('cal_cum', 0, 0);
+          return;
+        }
+
         const rnSel = getCurrentRecipientNo();
-      
-      // ★仕様変更：
-      // 行0（過年度分の合計）の「贈与加算累計額」は常に 0 を表示する。
-      // 受贈者切替・再計算・payload再適用時も必ず 0 に固定する。
-      setK('cal_cum', 0, 0);
+        const inhBaseMonth = toInt(document.querySelector('input[name="inherit_base_month"]')?.value, 12);
+        const inhBaseDay   = toInt(document.querySelector('input[name="inherit_base_day"]')?.value, 31);
+
+        const deathDate = new Date(
+          baseYear,
+          Math.max(0, Math.min(11, inhBaseMonth - 1)),
+          Math.max(1, Math.min(31, inhBaseDay))
+        );
+
+        let cumK = null;
+
+        if (window.__LAST_FUTURE_PAYLOAD?.rekinen) {
+          cumK = calcCumFromRekinen(window.__LAST_FUTURE_PAYLOAD.rekinen, deathDate);
+        }
+
+        if ((cumK === null || cumK === undefined) && Array.isArray(window.PAST_GIFTS) && window.PAST_GIFTS.length > 0) {
+          cumK = calcPastOnlyCumFromPastGifts(window.PAST_GIFTS, deathDate, rnSel);
+        }
+
+        setK('cal_cum', 0, Number.isFinite(cumK) ? Math.trunc(cumK) : 0);
 
 
       };
@@ -2558,25 +2635,18 @@ function applyFuturePayload(p) {
   const pickPastArray = (past) => {
     if (!past) return null;
   
-    // settlement_entries を追加して過年度データを取り出す
+    // 暦年課税用の過年度データだけを返す
     if (Array.isArray(past.calendar_entries)) {
       return past.calendar_entries.filter(entry =>
         entry.gift_year && entry.gift_month && entry.gift_day && entry.amount_thousand
       );
     }
   
-    if (Array.isArray(past.settlement_entries)) {
-      return past.settlement_entries.filter(entry => {
-        return entry.gift_year && entry.gift_month && entry.gift_day && entry.amount_thousand; // 必要な項目がすべて揃っている場合のみ返す
-      });
-    }
-  
-    // 他のキー（例: calendar_entries, past_gifts）が存在すればそれらを試す
-    const possibleKeys = ['calendar', 'list', 'items', 'gifts', 'past_gifts', 'calendar_entries'];
-    for (const key of possibleKeys) {
-      if (Array.isArray(past[key])) return past[key];
-    }
-  
+
+    // settlement_entries はここでは返さない
+    // （後段の recalcPastSettlementRow0 / t:'seisan' 専用処理に任せる）
+    const possibleKeys = ['calendar', 'list', 'items', 'gifts', 'past_gifts'];
+
     // past 自体が配列の場合も対応
     if (Array.isArray(past)) return past;
   
@@ -2678,8 +2748,8 @@ function applyFuturePayload(p) {
     const totalK = Object.values(zMap).reduce((s,v)=> s + (+v||0), 0);
     if (Number.isFinite(totalK)) setK('cal_amount', 0, totalK);
 
-    // ★仕様変更：行0（過年度合計）の「贈与加算累計額」は常に 0
-    setK('cal_cum', 0, 0);
+    try { recalcPastOnlyCum0 && recalcPastOnlyCum0(); } catch (_) {}
+
 
   } else {
     // ★ データが無い場合は行0をクリア（前受贈者の残骸を消す）
@@ -2765,7 +2835,7 @@ function applyFuturePayload(p) {
       setK('cal_basic', 0, -basicK);
       setK('cal_after_basic', 0, afterK);
       setK('cal_tax', 0, kojoK);  // ←今度は正しく表示される！
-      setK('cal_cum', 0, 0);      // ←過年度分の合計の贈与加算累計額は常に 0      
+      try { recalcPastOnlyCum0 && recalcPastOnlyCum0(); } catch (_) {}
     } else {
       // ★ データが無い場合は行0をクリア（前受贈者の残骸を消す）
       setK('cal_amount', 0, 0);

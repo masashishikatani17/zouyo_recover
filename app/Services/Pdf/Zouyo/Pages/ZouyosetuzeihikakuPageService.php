@@ -41,7 +41,7 @@ class ZouyosetuzeihikakuPageService implements ZouyoPdfPageInterface
         $wakusen = 0;
         $x = 255;
         $y = 190;
-        $pdf->MultiCell(30, 6, '(8ページ)', $wakusen, 'R', 0, 0, $x, $y);
+        $pdf->MultiCell(30, 6, '８ページ', $wakusen, 'R', 0, 0, $x, $y);
 
         // family テーブルから氏名を取得
         $familyRows = ProposalFamilyMember::query()

@@ -31,7 +31,7 @@ class OwariniPageService implements ZouyoPdfPageInterface
         $wakusen = 0;
         $x = 255;
         $y = 190;
-        $pdf->MultiCell(30, 6, '(10ページ)', $wakusen, 'R', 0, 0, $x, $y);
+        $pdf->MultiCell(30, 6, '１０ページ', $wakusen, 'R', 0, 0, $x, $y);
 
         /*
         //外枠ボックス

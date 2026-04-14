@@ -9,10 +9,11 @@ use App\Services\Pdf\Zouyo\ZouyoPdfPageInterface;
 use App\Services\Pdf\Zouyo\Pages\A3CoverPageService;
 use App\Services\Pdf\Zouyo\Pages\A3HajimeniPageService;
 use App\Services\Pdf\Zouyo\Pages\A3KazeihikakuintroPageService;
+use App\Services\Pdf\Zouyo\Pages\A3KakuzoyoPlanPageService;
 use App\Services\Pdf\Zouyo\Pages\A3FamilyGiftPlanPageService;
 use App\Services\Pdf\Zouyo\Pages\A3KakujinZouyoPageService;
-use App\Services\Pdf\Zouyo\Pages\A3KakujinSouzokuPageService;
 use App\Services\Pdf\Zouyo\Pages\A3SouzokukazeikakakuPageService;
+use App\Services\Pdf\Zouyo\Pages\A3ZouyoGenzeikokaPageService;
 use App\Services\Pdf\Zouyo\Pages\A3SouzokuninzaisansuiiPageService;
 use App\Services\Pdf\Zouyo\Pages\A3KakujinzaisansuiiPageService;
 use App\Services\Pdf\Zouyo\Pages\A3OwariniPageService;
@@ -27,11 +28,13 @@ use App\Services\Pdf\Zouyo\Pages\A3OwariniPageService;
  *  2: 比較説明
  *  3: 家族構成贈与プラン
  *  4: 各人別贈与額
- *  5: 各人別相続税
- *  6: 贈与後の相続税
- *  7: 相続人別財産の推移
- *  8: 各人別財産の推移
- *  9: おわりに
+ *  5: 各人別贈与額
+ *  6: （廃止）
+ *  7: 贈与後の相続税
+ *  8: 贈与による減税効果
+ *  9: 相続人別財産の推移
+ * 10: 各人別財産の推移
+ * 11: おわりに
 */
 class ZouyoA3PdfGenerator
 {
@@ -46,12 +49,13 @@ class ZouyoA3PdfGenerator
         '1' => A3HajimeniPageService::class,
         '2' => A3KazeihikakuintroPageService::class,
         '3' => A3FamilyGiftPlanPageService::class,
-        '4' => A3KakujinZouyoPageService::class,
-        '5' => A3KakujinSouzokuPageService::class,
-        '6' => A3SouzokukazeikakakuPageService::class,
-        '7' => A3SouzokuninzaisansuiiPageService::class,
-        '8' => A3KakujinzaisansuiiPageService::class,
-        '9' => A3OwariniPageService::class,
+        '4' => A3KakuzoyoPlanPageService::class,
+        '5' => A3KakujinZouyoPageService::class,
+        '7' => A3SouzokukazeikakakuPageService::class,
+        '8' => A3ZouyoGenzeikokaPageService::class,
+        '9' => A3SouzokuninzaisansuiiPageService::class,
+        '10' => A3KakujinzaisansuiiPageService::class,
+        '11' => A3OwariniPageService::class,
     ];
 
     public function __construct(
@@ -68,7 +72,7 @@ class ZouyoA3PdfGenerator
      */
     public function generate(int $dataId, array $pageIds): string
     {
-        // 1. ページIDを 0〜9 の整数に正規化        
+        // 1. ページIDを 0〜11 の整数に正規化        
         $pageIds = $this->normalizePageIds($pageIds);
 
         if (empty($pageIds)) {
@@ -84,7 +88,7 @@ class ZouyoA3PdfGenerator
 
         $pdf->SetCreator('Laravel TCPDF');
         $pdf->SetAuthor('Zouyo App');
-        $pdf->SetTitle('最適贈与プランナー');
+        $pdf->SetTitle('最適贈与額計算システム"贈与名人"');
 
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
@@ -125,15 +129,15 @@ class ZouyoA3PdfGenerator
     }
 
     /**
-     * ページIDの正規化（0〜9 の整数に限定・重複削除）。
-     *
+     * ページIDの正規化（現在有効なページIDのみに限定・重複削除）。     
      * @param  array<int,int|string> $pageIds
      * @return array<int,int>
      */
     private function normalizePageIds(array $pageIds): array
     {
         $pageIds = array_map('intval', $pageIds);
-        $pageIds = array_filter($pageIds, fn (int $v) => $v >= 0 && $v <= 9);
+        $allowedPageIds = array_map('intval', array_keys($this->pageServiceMap));
+        $pageIds = array_filter($pageIds, fn (int $v) => in_array($v, $allowedPageIds, true));
         $pageIds = array_values(array_unique($pageIds));
 
         return $pageIds;

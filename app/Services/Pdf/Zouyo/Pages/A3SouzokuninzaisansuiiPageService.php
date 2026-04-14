@@ -127,28 +127,28 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
         $sectionDefs = [
             [
                 'name_x'      => 14.0,
-                'name_y'      => 23.9,
+                'name_y'      => 25.9,
                 'name_w'      => 35.0,
                 'rel_y'       => 28.4,
-                'table_top_y' => 29.6,
+                'table_top_y' => 31.1,
                 'col_start_x' => 76.2,
                 'col_width'   => 15.90,
             ],
             [
                 'name_x'      => 14.0,
-                'name_y'      => 113.5,
+                'name_y'      => 115.4,
                 'name_w'      => 35.0,
                 'rel_y'       => 127.0,
-                'table_top_y' => 119.0,
+                'table_top_y' => 120.5,
                 'col_start_x' => 76.2,
                 'col_width'   => 15.90,
             ],
             [
                 'name_x'      => 14.0,
-                'name_y'      => 203.0,
+                'name_y'      => 204.6,
                 'name_w'      => 35.0,
                 'rel_y'       => 225.6,
-                'table_top_y' => 208.6,
+                'table_top_y' => 210.1,
                 'col_start_x' => 76.2,
                 'col_width'   => 15.90,
             ],
@@ -167,7 +167,9 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
             $pageNo++;
             $pdf->SetFont('mspgothic03', '', 10);
             $pdf->SetTextColor(0, 0, 0);
-        $pdf->MultiCell(28, 5, '(7 - ' . $pageNo . 'ページ)', 0, 'R', 0, 0, 386, 286);
+            
+            $pageNoZenkaku = mb_convert_kana((string)$pageNo, 'N', 'UTF-8');
+            $pdf->MultiCell(28, 5, '８－' . $pageNoZenkaku . 'ページ', 0, 'R', 0, 0, 386, 286);
 
             foreach ($chunk as $index => $info) {
                 $this->drawPersonSection(
@@ -276,7 +278,7 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
 
         $this->drawCommentBlock(
             $pdf,
-            (float)$section['table_top_y'] + 66.0,
+            (float)$section['table_top_y'] + 65.0,
             $recipientNo,
             $prefillFamily,
             $prefillHeader

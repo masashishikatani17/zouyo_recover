@@ -52,7 +52,7 @@ class A3OwariniPageService implements ZouyoPdfPageInterface
         $pdf->MultiCell(
             $pageLabelW,
             $pageLabelH,
-            '(9ページ)',
+            '１０ページ',
             $wakusen,
             'R',
             0,

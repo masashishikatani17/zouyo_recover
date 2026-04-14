@@ -7,6 +7,7 @@ use TCPDF;
 use App\Models\FutureGiftRecipient;
 use App\Models\FutureGiftPlanEntry;
 use App\Models\ProposalFamilyMember;
+use App\Models\ProposalHeader;
 use App\Models\PastGiftCalendarEntry;
 use App\Models\PastGiftSettlementEntry;
 use App\Models\ZouyoGeneralRate;
@@ -62,6 +63,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
             return (int)$s;
         };
 
+        $deathYear = $this->resolveDisplayDeathYear($payload, $dataId);
         $prefillFuture = (array)($payload['prefillFuture'] ?? []);
 
         $rateYearGeneral = (int)(ZouyoGeneralRate::query()->whereNull('company_id')->max('kihu_year') ?: 2026);
@@ -155,13 +157,15 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
 
             $pdf->SetFont('mspgothic03', '', 10);
             $pdf->SetTextColor(0, 0, 0);
-            $pdf->MultiCell(38, 5, '(4 - ' . $pageNo . 'ページ)', 0, 'R', 0, 0, 375, 277);
+            $pageNoZenkaku = mb_convert_kana((string)$pageNo, 'N', 'UTF-8');
+            $pdf->MultiCell(38, 5, '５－' . $pageNoZenkaku . 'ページ', 0, 'R', 0, 0, 375, 280);
 
             // 上段
             if (isset($group[0])) {
                 $dataset = $this->buildA3RecipientDataset(
                     $dataId,
                     $group[0],
+                    $deathYear,                    
                     $birthByRow,
                     $inputAgeByRow,                    
                     $prefillFuture,
@@ -177,6 +181,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
                 $dataset = $this->buildA3RecipientDataset(
                     $dataId,
                     $group[1],
+                    $deathYear,                    
                     $birthByRow,
                     $inputAgeByRow,                    
                     $prefillFuture,
@@ -198,6 +203,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
     private function buildA3RecipientDataset(
         int $dataId,
         array $info,
+        int $deathYear,        
         array $birthByRow,
         array $inputAgeByRow,        
         array $prefillFuture,
@@ -259,7 +265,131 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
             $seisanTaxByYear[$y]  = ($seisanTaxByYear[$y]  ?? 0) + $k;
         }
 
-        $before2022 = [
+        $pastColKeys = $this->pastDetailColumnKeys($deathYear);
+        $pastCols = $this->initPastDetailCols($pastColKeys);
+
+        $birth = $birthByRow[$recipientNo] ?? ['year' => null, 'month' => null, 'day' => null];
+        $donorBirth = $birthByRow[1] ?? ['year' => null, 'month' => null, 'day' => null];
+        $recipientInputAge = $inputAgeByRow[$recipientNo] ?? null;
+        $donorInputAge     = $inputAgeByRow[1] ?? null;        
+        $isTokurei = ($tokureiFlag === 1);
+        $rateYear  = $isTokurei ? $rateYearTokurei : $rateYearGeneral;
+        
+        foreach ($pastColKeys as $idx => $pastKey) {
+            if ($idx === 0) {
+                $pastCols[$pastKey]['gift_year'] = null;
+                $pastCols[$pastKey]['donor_age'] = null;
+                $pastCols[$pastKey]['age'] = null;
+                continue;
+            }
+
+            $year = (int)$pastKey;
+            $yearOffset = $year - $deathYear;
+
+            $recipientAge = null;
+            if ($recipientInputAge !== null) {
+                $recipientAge = $recipientInputAge + $yearOffset;
+            } else {
+                $recipientAge = $this->calcAgeAtJan1(
+                    $birth['year'],
+                    $birth['month'],
+                    $birth['day'],
+                    $year
+                );
+            }
+
+            $donorAge = null;
+            if ($donorInputAge !== null) {
+                $donorAge = $donorInputAge + $yearOffset;
+            } else {
+                $donorAge = $this->calcAgeAtJan1(
+                    $donorBirth['year'],
+                    $donorBirth['month'],
+                    $donorBirth['day'],
+                    $year
+                );
+            }
+
+            $pastCols[$pastKey]['gift_year'] = $year;
+            $pastCols[$pastKey]['donor_age'] = $donorAge;
+            $pastCols[$pastKey]['age'] = $recipientAge;
+        }
+
+        foreach ($zoyoByYear as $year => $amount) {
+            $bucket = $this->resolvePastGiftBucket($deathYear, $year);
+            if ($bucket === null || !isset($pastCols[$bucket])) {
+                continue;
+            }
+
+            $basic = (int)($kojoByYear[$year] ?? 0);
+
+            $pastCols[$bucket]['cal_amount'] += $amount;
+            $pastCols[$bucket]['cal_basic']  -= $basic;
+            $pastCols[$bucket]['cal_after']  += max(0, $amount - $basic);
+            $pastCols[$bucket]['cal_tax']    += (int)($taxByYear[$year] ?? 0);
+        }
+
+        foreach ($seisanZoyoByYear as $year => $amount) {
+            $bucket = $this->resolvePastGiftBucket($deathYear, $year);
+            if ($bucket === null || !isset($pastCols[$bucket])) {
+                continue;
+            }
+
+            $pastCols[$bucket]['set_amount'] += $amount;
+            $pastCols[$bucket]['set_after']  += $amount;
+            $pastCols[$bucket]['set_after25']+= max(0, $amount - 25000);
+            $pastCols[$bucket]['set_tax']    += (int)($seisanTaxByYear[$year] ?? 0);
+        }
+
+        $runningPastCalCum = 0;
+        $runningPastSetCum = 0;
+        foreach ($pastColKeys as $pastKey) {
+            $runningPastCalCum += (int)($pastCols[$pastKey]['cal_amount'] ?? 0);
+            $runningPastSetCum += (int)($pastCols[$pastKey]['set_amount'] ?? 0);
+
+            $pastCols[$pastKey]['cal_cum'] = $runningPastCalCum;
+            $pastCols[$pastKey]['set_cum'] = $runningPastSetCum;
+        }
+        
+        
+        $planRows = FutureGiftPlanEntry::query()
+            ->where('data_id', $dataId)
+            ->where('recipient_no', $recipientNo)
+            ->orderBy('row_no')
+            ->get([
+                'row_no',
+                'gift_year',
+                'calendar_amount_thousand',
+                'calendar_basic_deduction_thousand',
+                'calendar_add_cum_thousand',
+                'settlement_amount_thousand',
+                'settlement_110k_basic_thousand',
+                'settlement_after_basic_thousand',
+                'settlement_after_25m_thousand',
+                'settlement_tax20_thousand',
+                'settlement_add_cum_thousand',
+            ]);
+
+        $plans = [];
+        foreach ($planRows as $row) {
+            $rawRowNo = (int)($row->row_no ?? 0);
+            if ($rawRowNo >= 1 && $rawRowNo <= 20) {
+                $plans[$rawRowNo] = $row;
+            } elseif ($rawRowNo >= 0 && $rawRowNo <= 19) {
+                $plans[$rawRowNo + 1] = $row;
+            }
+        }
+        
+        
+        
+        $runningSetCum = (int)PastGiftSettlementEntry::query()
+            ->where('data_id', $dataId)
+            ->where('recipient_no', $recipientNo)
+            ->sum('amount_thousand');
+
+        $detailCols = [];
+        $firstGiftYear = null;        
+        $sum = [
             'cal_amount' => 0,
             'cal_basic'  => 0,
             'cal_after'  => 0,
@@ -273,75 +403,25 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
             'set_cum'    => 0,
         ];
 
-        foreach ($zoyoByYear as $year => $amount) {
-            // A3版は過年度を1列で表現するため、2024年以前をすべて集約する
-            if ($year <= 2024) {                $basic = (int)($kojoByYear[$year] ?? 0);
-                $before2022['cal_amount'] += $amount;
-                $before2022['cal_basic']  -= $basic;
-                $before2022['cal_after']  += max(0, $amount - $basic);
-                $before2022['cal_tax']    += (int)($taxByYear[$year] ?? 0);
-                
-                // 贈与加算累計額は、過年度の暦年贈与額の累計を表示する
-                $before2022['cal_cum']    += $amount;                
-            }
+        foreach ($pastColKeys as $pastKey) {
+            $sum['cal_amount'] += (int)($pastCols[$pastKey]['cal_amount'] ?? 0);
+            $sum['cal_basic']  += (int)($pastCols[$pastKey]['cal_basic']  ?? 0);
+            $sum['cal_after']  += (int)($pastCols[$pastKey]['cal_after']  ?? 0);
+            $sum['cal_tax']    += (int)($pastCols[$pastKey]['cal_tax']    ?? 0);
+            $sum['cal_cum']    += (int)($pastCols[$pastKey]['cal_cum']    ?? 0);
+            $sum['set_amount'] += (int)($pastCols[$pastKey]['set_amount'] ?? 0);
+            $sum['set_basic']  += (int)($pastCols[$pastKey]['set_basic']  ?? 0);
+            $sum['set_after']  += (int)($pastCols[$pastKey]['set_after']  ?? 0);
+            $sum['set_after25']+= (int)($pastCols[$pastKey]['set_after25']?? 0);
+            $sum['set_tax']    += (int)($pastCols[$pastKey]['set_tax']    ?? 0);
+            $sum['set_cum']    += (int)($pastCols[$pastKey]['set_cum']    ?? 0);
         }
-
-        foreach ($seisanZoyoByYear as $year => $amount) {
-            // A3版は過年度を1列で表現するため、2024年以前をすべて集約する
-            if ($year <= 2024) {
-                $before2022['set_amount'] += $amount;
-                $before2022['set_after']  += $amount;
-                $before2022['set_after25']+= max(0, $amount - 25000);
-                $before2022['set_tax']    += (int)($seisanTaxByYear[$year] ?? 0);
-                
-                // 贈与加算累計額は、過年度の精算課税贈与額の累計を表示する
-                $before2022['set_cum']    += $amount;                
-            }
-        }
-
-        $plans = FutureGiftPlanEntry::query()
-            ->where('data_id', $dataId)
-            ->where('recipient_no', $recipientNo)
-            ->orderBy('row_no')
-            ->get()
-            ->keyBy('row_no');
-
-        $birth = $birthByRow[$recipientNo] ?? ['year' => null, 'month' => null, 'day' => null];
-        $donorBirth = $birthByRow[1] ?? ['year' => null, 'month' => null, 'day' => null];
-        $recipientInputAge = $inputAgeByRow[$recipientNo] ?? null;
-        $donorInputAge     = $inputAgeByRow[1] ?? null;        
-        $isTokurei = ($tokureiFlag === 1);
-        $rateYear  = $isTokurei ? $rateYearTokurei : $rateYearGeneral;
-
-        $runningSetCum = (int)PastGiftSettlementEntry::query()
-            ->where('data_id', $dataId)
-            ->where('recipient_no', $recipientNo)
-            ->sum('amount_thousand');
-
-        $detailCols = [];
-        $firstGiftYear = null;        
-        $sum = [
-            'cal_amount' => (int)($before2022['cal_amount'] ?? 0),
-            'cal_basic'  => (int)($before2022['cal_basic']  ?? 0),
-            'cal_after'  => (int)($before2022['cal_after']  ?? 0),
-            'cal_tax'    => (int)($before2022['cal_tax']    ?? 0),
-            'cal_cum'    => (int)($before2022['cal_cum']    ?? 0),
-            'set_amount' => (int)($before2022['set_amount'] ?? 0),
-            'set_basic'  => (int)($before2022['set_basic']  ?? 0),
-            'set_after'  => (int)($before2022['set_after']  ?? 0),
-            'set_after25'=> (int)($before2022['set_after25']?? 0),
-            'set_tax'    => (int)($before2022['set_tax']    ?? 0),
-            'set_cum'    => (int)($before2022['set_cum']    ?? 0),
-        ];
 
 
         for ($i = 1; $i <= 20; $i++) {
             $plan = $plans[$i] ?? null;
-            $giftYear = $plan && $plan->gift_year ? (int)$plan->gift_year : (2024 + $i);
-            if ($firstGiftYear === null) {
-                $firstGiftYear = $giftYear;
-            }            
-
+            $giftYear = $plan && $plan->gift_year ? (int)$plan->gift_year : ($deathYear + $i - 1);
+ 
             $calAmountK  = $toInt($plan->calendar_amount_thousand ?? 0);
             $calBasicInK = $toInt($plan->calendar_basic_deduction_thousand ?? 0);
             $calBasicK   = (int)min($calAmountK, $calBasicInK);
@@ -375,7 +455,8 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
                 $runningSetCum = $setCumK;
             }
 
-            $yearOffset = $firstGiftYear !== null ? ($giftYear - $firstGiftYear) : 0;
+            $yearOffset = $giftYear - $deathYear;
+
 
             $age = null;
             if ($recipientInputAge !== null) {
@@ -437,7 +518,8 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
             'recipient_name' => $recipientName !== '' ? $recipientName : ('受贈者 ' . $recipientNo),
             'tokurei_label'  => $tokureiFlag === 1 ? '(特例税率)' : '(一般税率)',
             'donor_birth'    => $donorBirth,            
-            'before2022'     => $before2022,
+            'past_col_keys'  => $pastColKeys,
+            'past_cols'      => $pastCols,            
             'detail_cols'    => $detailCols,
             'sum' => $sum,
 
@@ -461,31 +543,35 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
             return;
         }
         
-        $originY = $panel === 'top' ? 0.0 : 141.0;
-        $originX = 0.0;
+        $originY = $panel === 'top' ? 1.45 : 147.0;
+        $originX = -2.0;
         $wakusen = 0;
 
         // ヘッダ
         $pdf->SetFont('mspgothic03', '', 10);
         //$this->drawA3Text($pdf, $donorName,                    28.0 + $originX,  29.5 + $originY, 20, 'C');
-        $this->drawA3Text($pdf, (string)$dataset['recipient_name'], 39.0 + $originX,  24.3 + $originY, 20, 'L');
+        $this->drawA3Text($pdf, (string)$dataset['recipient_name'], 41.0 + $originX,  24.3 + $originY, 20, 'L');
         
         $pdf->SetFont('mspmincho02', '', 9);
         //$this->drawA3Text($pdf, (string)$dataset['tokurei_label'],  37.7 + $originX,  72.1 + $originY, 20, 'L');
-        $pdf->MultiCell(30, 4.0, (string)$dataset['tokurei_label'], 0,       'L', 0, 0, 33.7 + $originX, 78.4 + $originY);
+        $pdf->MultiCell(30, 4.0, (string)$dataset['tokurei_label'], 0,       'L', 0, 0, 36.6 + $originX, 78.7 + $originY);
 
         
         $pdf->SetFont('mspgothic03', '', 10);
         $fontSizeSet = 9;
 
-        $pdf->SetFont('mspgothic03', '', 8);
-        // 横方向の列位置（1〜20列 + 過年度合計列）
-        $pastX   =  58.0 + $originX;
-        $col0X   = 112.5 + $originX;
-        $colStep =  15.9;
+        $pdf->SetFont('mspgothic03', '', 8.0);
+        // 横方向の列位置（過年度4列 + 将来20列 + 合計列）
+        $pastColKeys     = (array)($dataset['past_col_keys'] ?? []);
+        $pastCols        = (array)($dataset['past_cols'] ?? []);
+        $pastColStartX   = 58.2 + $originX;
+        $colStep         = 12.2;
+        $cellW           = 12.0;
+        $futureColStartX = $pastColStartX + (count($pastColKeys) * $colStep) + 2.0;
+        $sumColX         = 392.4 + $originX;
+
 
         // 行位置
-        $yIndex      = 29.0 + $originY;
         $yGiftYear   = 39.8 + $originY;
         $yDonor      = 46.0 + $originY;
         $yRecipient  = 52.5 + $originY;
@@ -504,76 +590,185 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
         $ySetCum     = 124.5 + $originY;
 
         // 過年度合計列
-        $before2022 = (array)$dataset['before2022'];
-        $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $before2022['cal_amount'] ?? 0), $pastX, $yCalAmount, 16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $before2022['cal_basic']  ?? 0), $pastX, $yCalBasic,  16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $before2022['cal_after']  ?? 0), $pastX, $yCalAfter,  16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $before2022['cal_tax']    ?? 0), $pastX, $yCalTax,    16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $before2022['cal_cum']    ?? 0), $pastX, $yCalCum,    16, 'R', $fontSizeSet);
+        // 過年度4列（より以前 + 年別3列）
+        foreach ($pastColKeys as $idx => $pastKey) {
+            $x = $pastColStartX + ($idx * $colStep);
+            $col = (array)($pastCols[$pastKey] ?? []);
 
-        $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $before2022['set_amount'] ?? 0), $pastX, $ySetAmount, 16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $before2022['set_basic']  ?? 0), $pastX, $ySetBasic,  16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $before2022['set_after']  ?? 0), $pastX, $ySetAfter,  16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $before2022['set_after25']?? 0), $pastX, $ySetAfter25,16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $before2022['set_tax']    ?? 0), $pastX, $ySetTax,    16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $before2022['set_cum']    ?? 0), $pastX, $ySetCum,    16, 'R', $fontSizeSet);
+            if (($col['gift_year'] ?? null) !== null) {
+                $this->drawA3Text($pdf, (string)$col['gift_year'], $x, $yGiftYear, $cellW, 'C');
+            }
+            $this->drawA3Text(
+                $pdf,
+                isset($col['donor_age']) && $col['donor_age'] !== null ? ((string)$col['donor_age'] . '歳') : '',
+                $x,
+                $yDonor,
+                $cellW,
+                'C',
+                $fontSizeSet
+            );
+            $this->drawA3Text(
+                $pdf,
+                isset($col['age']) && $col['age'] !== null ? ((string)$col['age'] . '歳') : '',
+                $x,
+                $yRecipient,
+                $cellW,
+                'C',
+                $fontSizeSet
+            );
+
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_amount'] ?? 0), $x, $yCalAmount, $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_basic']  ?? 0), $x, $yCalBasic,  $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_after']  ?? 0), $x, $yCalAfter,  $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_tax']    ?? 0), $x, $yCalTax,    $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_cum']    ?? 0), $x, $yCalCum,    $cellW, 'R', $fontSizeSet);
+
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_amount'] ?? 0), $x, $ySetAmount, $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_basic']  ?? 0), $x, $ySetBasic,  $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_after']  ?? 0), $x, $ySetAfter,  $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_after25']?? 0), $x, $ySetAfter25,$cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_tax']    ?? 0), $x, $ySetTax,    $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_cum']    ?? 0), $x, $ySetCum,    $cellW, 'R', $fontSizeSet);
+        }
+
+
 
         // 1〜20列
+        $colStep = 14.3;
         $detailCols = (array)$dataset['detail_cols'];
         foreach ($detailCols as $i => $col) {
-            $x = $col0X + (($i - 1) * $colStep) - 39.0;
-            
+            $x = $futureColStartX + (($i - 1) * $colStep);
+             
             //年次
-            $this->drawA3Text($pdf, (string)($col['gift_year'] ?? ''), $x + 1.0, $yGiftYear, 16, 'C');
-
+            $this->drawA3Text($pdf, (string)($col['gift_year'] ?? ''), $x, $yGiftYear, $cellW, 'C');
+ 
             //贈与者の年齢
-            $this->drawA3Text($pdf, isset($col['donor_age']) && $col['donor_age'] !== null ? ((string)$col['donor_age'] . '歳') : '', (float)$x + 2.0, $yDonor, 16, 'C', $fontSizeSet);
-            
-
+            $this->drawA3Text($pdf, isset($col['donor_age']) && $col['donor_age'] !== null ? ((string)$col['donor_age'] . '歳') : '', $x, $yDonor, $cellW, 'C', $fontSizeSet);
+             
+ 
             //受贈者の年齢
-            $this->drawA3Text($pdf, isset($col['age']) && $col['age'] !== null ? ((string)$col['age'] . '歳') : '', (float)$x + 2.0, $yRecipient, 16, 'C', $fontSizeSet);
+            $this->drawA3Text($pdf, isset($col['age']) && $col['age'] !== null ? ((string)$col['age'] . '歳') : '', $x, $yRecipient, $cellW, 'C', $fontSizeSet);
 
             //暦年贈与
             //贈与金額
-            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_amount'] ?? 0), $x, $yCalAmount, 16, 'R', $fontSizeSet);
-            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_basic']  ?? 0), $x, $yCalBasic,  16, 'R', $fontSizeSet);
-            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_after']  ?? 0), $x, $yCalAfter,  16, 'R', $fontSizeSet);
-            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_tax']    ?? 0), $x, $yCalTax,    16, 'R', $fontSizeSet);
-            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_cum']    ?? 0), $x, $yCalCum,    16, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_amount'] ?? 0), $x, $yCalAmount, $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_basic']  ?? 0), $x, $yCalBasic,  $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_after']  ?? 0), $x, $yCalAfter,  $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_tax']    ?? 0), $x, $yCalTax,    $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['cal_cum']    ?? 0), $x, $yCalCum,    $cellW, 'R', $fontSizeSet);
 
             
             //精算課税贈与
             //贈与金額
-            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_amount'] ?? 0), $x, $ySetAmount, 16, 'R', $fontSizeSet);
-            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_basic']  ?? 0), $x, $ySetBasic,  16, 'R', $fontSizeSet);
-            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_after']  ?? 0), $x, $ySetAfter,  16, 'R', $fontSizeSet);
-            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_after25']?? 0), $x, $ySetAfter25,16, 'R', $fontSizeSet);
-            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_tax']    ?? 0), $x, $ySetTax,    16, 'R', $fontSizeSet);
-            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_cum']    ?? 0), $x, $ySetCum,    16, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_amount'] ?? 0), $x, $ySetAmount, $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_basic']  ?? 0), $x, $ySetBasic,  $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_after']  ?? 0), $x, $ySetAfter,  $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_after25']?? 0), $x, $ySetAfter25,$cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_tax']    ?? 0), $x, $ySetTax,    $cellW, 'R', $fontSizeSet);
+            $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $col['set_cum']    ?? 0), $x, $ySetCum,    $cellW, 'R', $fontSizeSet);
+
         }
 
         // 右端列：横合計
         $sum = (array)$dataset['sum'];
-        $sumColX = 391.5 + $originX;
-
         $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['cal_amount'] ?? 0), $sumColX, $yCalAmount, 16, 'R', $fontSizeSet);
         $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['cal_basic']  ?? 0), $sumColX, $yCalBasic,  16, 'R', $fontSizeSet);
         $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['cal_after']  ?? 0), $sumColX, $yCalAfter,  16, 'R', $fontSizeSet);
         $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['cal_tax']    ?? 0), $sumColX, $yCalTax,    16, 'R', $fontSizeSet);
-        //$this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['cal_cum']    ?? 0), $sumColX, $yCalCum,    16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, '    －', $sumColX, $yCalCum,    16, 'C', $fontSizeSet);
-
+        $this->drawA3Text($pdf, '  －', $sumColX, $yCalCum,    16, 'C', $fontSizeSet);
+ 
         $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['set_amount'] ?? 0), $sumColX, $ySetAmount, 16, 'R', $fontSizeSet);
         $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['set_basic']  ?? 0), $sumColX, $ySetBasic,  16, 'R', $fontSizeSet);
         $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['set_after']  ?? 0), $sumColX, $ySetAfter,  16, 'R', $fontSizeSet);
         $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['set_after25']?? 0), $sumColX, $ySetAfter25,16, 'R', $fontSizeSet);
         $this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['set_tax']    ?? 0), $sumColX, $ySetTax,    16, 'R', $fontSizeSet);
         //$this->drawA3Text($pdf, (string)call_user_func($fmtStr, $sum['set_cum']    ?? 0), $sumColX, $ySetCum,    16, 'R', $fontSizeSet);
-        $this->drawA3Text($pdf, '   －', $sumColX, $ySetCum,    16, 'C', $fontSizeSet);
+        $this->drawA3Text($pdf, '  －', $sumColX, $ySetCum,    16, 'C', $fontSizeSet);
 
         
     }
+    
+    /**
+     * 過年度詳細列のキー
+     *  - before_(deathYear-3)
+     *  - deathYear-3
+     *  - deathYear-2
+     *  - deathYear-1
+     *
+     * @return array<int,string>
+     */
+    private function pastDetailColumnKeys(int $deathYear): array
+    {
+        $firstPastYear = $deathYear - 3;
 
+        return [
+            'before_' . $firstPastYear,
+            (string)$firstPastYear,
+            (string)($firstPastYear + 1),
+            (string)($firstPastYear + 2),
+        ];
+    }
+
+    /**
+     * 過年度4列の初期化
+     *
+     * @param array<int,string> $keys
+     * @return array<string,array<string,int|null>>
+     */
+    private function initPastDetailCols(array $keys): array
+    {
+        $cols = [];
+
+        foreach ($keys as $key) {
+            $cols[$key] = [
+                'gift_year'  => null,
+                'donor_age'  => null,
+                'age'        => null,
+                'cal_amount' => 0,
+                'cal_basic'  => 0,
+                'cal_after'  => 0,
+                'cal_tax'    => 0,
+                'cal_cum'    => 0,
+                'set_amount' => 0,
+                'set_basic'  => 0,
+                'set_after'  => 0,
+                'set_after25'=> 0,
+                'set_tax'    => 0,
+                'set_cum'    => 0,
+            ];
+        }
+
+        return $cols;
+    }
+
+    /**
+     * 過年度分の年バケット
+     * - before_(deathYear-3)
+     * - deathYear-3
+     * - deathYear-2
+     * - deathYear-1
+     */
+    private function resolvePastGiftBucket(int $deathYear, ?int $giftYear): ?string
+    {
+        if ($giftYear === null || $giftYear <= 0) {
+            return null;
+        }
+
+        $firstPastYear = $deathYear - 3;
+        $lastPastYear  = $deathYear - 1;
+
+        if ($giftYear < $firstPastYear) {
+            return 'before_' . $firstPastYear;
+        }
+
+        if ($giftYear >= $firstPastYear && $giftYear <= $lastPastYear) {
+            return (string)$giftYear;
+        }
+
+        return null;
+    }
+
+    
     private function drawA3Text(
         TCPDF $pdf,
         string $text,
@@ -585,6 +780,47 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
     ): void {
         $pdf->SetFont('mspgothic03', '', $fontSize);
         $pdf->MultiCell($w, 4.0, $text, 0, $align, 0, 0, $x, $y, true, 0, false, true, 0, 'M', true);
+    }
+
+    /**
+     * 表示用の相続開始年を解決する。
+     * A3KakuzoyoPlanPageService と同じ考え方で、
+     * 過年度分を「より以前 + 年別3列」に切る基準年として使用する。
+     */
+    private function resolveDisplayDeathYear(array $payload, int $dataId): int
+    {
+        $candidates = [
+            $payload['header_year'] ?? null,
+            $payload['header']['year'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $year = $this->toIntValue($candidate);
+            if ($year >= 1900) {
+                return $year;
+            }
+        }
+
+        $header = ProposalHeader::query()
+            ->where('data_id', $dataId)
+            ->first();
+
+        if ($header) {
+            $proposalYear = $this->toIntValue($header->proposal_year ?? null);
+            if ($proposalYear >= 1900) {
+                return $proposalYear;
+            }
+
+            $proposalDate = (string)($header->proposal_date ?? '');
+            if ($proposalDate !== '') {
+                try {
+                    return (int)(new \DateTimeImmutable($proposalDate))->format('Y');
+                } catch (\Throwable $e) {
+                }
+            }
+        }
+
+        return (int)date('Y');
     }
 
 
@@ -780,5 +1016,33 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
 
         return null;
     }
+
+
+ 
+    /**
+     * 文字列混在でも int 化
+     */
+    private function toIntValue($value): int
+    {
+        if ($value === null) {
+            return 0;
+        }
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_float($value)) {
+            return (int)$value;
+        }
+
+        $string = mb_convert_kana((string)$value, 'n', 'UTF-8');
+        $string = str_replace([',', ' ', '　'], '', $string);
+        $string = preg_replace('/[^\d\-]/', '', $string) ?? '';
+
+        return ($string === '' || $string === '-') ? 0 : (int)$string;
+    }
+
+
 
 }

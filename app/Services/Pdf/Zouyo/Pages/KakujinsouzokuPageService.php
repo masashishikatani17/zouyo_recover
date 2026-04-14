@@ -607,7 +607,7 @@ class KakujinsouzokuPageService implements ZouyoPdfPageInterface
                 $wakusen = 0;
                 $x = 255;
                 $y = 190;
-                $pdf->MultiCell(30, 6, '(7 - 1ページ)', $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell(30, 6, '７－１ページ', $wakusen, 'R', 0, 0, $x, $y);
 
             }
             
@@ -630,7 +630,7 @@ class KakujinsouzokuPageService implements ZouyoPdfPageInterface
                 $wakusen = 0;
                 $x = 255;
                 $y = 190;
-                $pdf->MultiCell(30, 6, '(7 - 2ページ)', $wakusen, 'R', 0, 0, $x, $y);
+                $pdf->MultiCell(30, 6, '７－２ページ', $wakusen, 'R', 0, 0, $x, $y);
     
                 // 被相続人氏名をPDFに描画
                 $pdf->SetFont('mspgothic03', '', 12);

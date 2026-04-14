@@ -105,7 +105,7 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
         $wakusen = 0;
         $x = 375;
         $y = 277;
-        $pdf->MultiCell(30, 6, '(8ページ)', $wakusen, 'R', 0, 0, $x, $y);
+        $pdf->MultiCell(30, 6, '９ページ', $wakusen, 'R', 0, 0, $x, $y);
 
         $layout = $this->buildLayout();
         $series = $this->buildSeries($targets, $resultsData);
@@ -125,19 +125,23 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
             'year_col_width'  => 17.0,
             'blocks' => [
                 'before' => [
-                    'body_top_y'    => 34.0,
-                    'body_bottom_y' => 79.2,
-                    'total_y'       => 81.0,
+                    // テンプレート変更後、1行目がヘッダ罫線に近すぎるため少し下げる
+                    'body_top_y'    => 36.0,
+                    'body_bottom_y' => 78.8,
+                    'total_y'       => 80.0,
                 ],
                 'increase' => [
-                    'body_top_y'    => 86.0,
-                    'body_bottom_y' => 131.4,
-                    'total_y'       => 133.2,
+                    // 最下段が次ブロック境界線に掛かるため、本文を少し上で締め、
+                    // 合計行は枠内中央へ戻す
+                    'body_top_y'    => 85.0,
+                    'body_bottom_y' => 127.4,
+                    'total_y'       => 128.6,
                 ],
                 'after' => [
-                    'body_top_y'    => 138.0,
-                    'body_bottom_y' => 183.3,
-                    'total_y'       => 185.1,
+                    // 最終ブロックは特に下へ落ちているため、本文・合計とも上へ詰める
+                    'body_top_y'    => 134.0,
+                    'body_bottom_y' => 176.1,
+                    'total_y'       => 177.5,
                 ],
             ],
         ];

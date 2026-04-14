@@ -9,6 +9,7 @@ use App\Models\PastGiftSettlementEntry;
 use App\Models\ProposalHeader;
 use App\Models\ProposalFamilyMember;
 use App\Services\Pdf\Zouyo\ZouyoPdfPageInterface;
+use App\Services\Pdf\Zouyo\Pages\Support\A3InheritanceTaxTableDataBuilder;
 use TCPDF;
 
 /**
@@ -42,6 +43,7 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         // ▼ 家族表の描画
         $startY    = 54.35;
         $rowHeight = 5.78;
+
 
         // 新しい家族構成表テンプレートの罫線位置に合わせた座標
         $colX = [
@@ -79,6 +81,21 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         ];
 
 
+        /**
+         * 家族構成表の印字位置微調整
+         * - 現テンプレートでは全体に少し左上へ寄っているため、
+         *   表全体を右下へ寄せる
+         * - 今後さらに微調整する場合はこの2値だけを触ればよい
+         */
+        $familyTableOffsetX = 15.5;
+        $familyTableOffsetY =  4.2;
+
+        foreach ($colX as $key => $value) {
+            $colX[$key] = $value + $familyTableOffsetX;
+        }
+        $startY += $familyTableOffsetY;
+
+
         $relationships = config('relationships');
 
         $pdf->SetFont('mspgothic03', '', 10);
@@ -95,7 +112,7 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         $pdf->MultiCell(
             $pageLabelW,
             $pageLabelH,
-            '(3ページ)',
+            '３ページ',
             $wakusen,
             'R',
             0,
@@ -260,10 +277,267 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
             }
         }
 
-        // ▼ 家族表の下に「各人別贈与プラン」を描画
-        $this->renderEachRecipientGiftPlanTable($pdf, $payload, $family);
+        // ▼ STEP3 削除予定
+        //    「各人別贈与プラン」は A3KakuzoyoPlanPageService へ移設する。
+        //    この呼び出しは、A3_04 ページをページ配列へ組み込んだ後に削除する。
+        //    現段階ではまだ動作を維持するため残しておく。
+        //$this->renderEachRecipientGiftPlanTable($pdf, $payload, $family);
+        
+        // 下段の「各人別贈与プラン」は新ページへ移動したため、このページでは描画しない        
+
+
+
+        //各相続人の相続税額
+        $tableBuilder = new A3InheritanceTaxTableDataBuilder();
+        $inheritanceTaxTableData = $tableBuilder->build($payload);
+        $this->renderInheritanceTaxTable($pdf, $inheritanceTaxTableData);
+ 
+
     }
 
+
+
+
+    //各相続人の相続税額
+    private function renderInheritanceTaxTable(TCPDF $pdf, array $tableData): void
+    {
+
+        $yMap = $this->inheritanceTaxTableYMap();
+        $totalX = 145.0;
+        $totalW = 19.0;
+        $heirStartX = 169.0;
+        $heirW = 18.5;
+        $heirStep = 25.1;
+
+        $wakusen = 0;
+
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetFont('mspgothic03', '', 10);
+        
+
+        // 相続人ヘッダ（氏名・続柄）
+        $this->renderInheritanceTaxHeaderRows(
+            $pdf,
+            $tableData,
+            $heirStartX,
+            $heirW,
+            $heirStep
+        );        
+
+        
+        //相続税の基礎控除
+        $formulaLabel = trim((string)($tableData['basic_deduction_formula_label'] ?? ''));
+        if ($formulaLabel !== '') {
+            $pdf->SetFont('mspgothic03', '', 8.5);
+            $pdf->MultiCell(
+                108.0,
+                5.0,
+                $formulaLabel,
+                $wakusen,
+                'R',
+                0,
+                0,
+                22.0,
+                ($yMap['basic_deduction']['y'] ?? 181.2) + 0.4
+            );
+            $pdf->SetFont('mspgothic03', '', 10);
+        }
+
+        foreach ($yMap as $rowKey => $meta) {
+            $this->renderInheritanceTaxCell(
+                $pdf,
+                $totalX,
+                (float)$meta['y'],
+                $totalW,
+                $tableData['total'][$rowKey] ?? null,
+                (string)($meta['align'] ?? 'R')
+            );
+        }
+
+        foreach (range(2, 10) as $index => $recipientNo) {
+            $heir = $tableData['heirs'][$recipientNo] ?? [];
+            if (!($heir['has_name'] ?? false)) {
+                continue;
+            }
+
+            $x = $heirStartX + ($heirStep * $index);
+            foreach ($yMap as $rowKey => $meta) {
+                $this->renderInheritanceTaxCell(
+                    $pdf,
+                    $x,
+                    (float)$meta['y'],
+                    $heirW,
+                    $heir[$rowKey] ?? null,
+                    (string)($meta['align'] ?? 'R')
+                );
+            }
+        }
+    }
+
+    private function renderInheritanceTaxHeaderRows(
+        TCPDF $pdf,
+        array $tableData,
+        float $heirStartX,
+        float $heirW,
+        float $heirStep
+    ): void {
+        // 「相続人」見出しの下にある2段
+        $nameY = 140.6;
+        $relationshipY = 147.8;
+        $wakusen = 0;
+
+        foreach (range(2, 10) as $index => $recipientNo) {
+            $heir = $tableData['heirs'][$recipientNo] ?? [];
+            if (!($heir['has_name'] ?? false)) {
+                continue;
+            }
+
+            $x = $heirStartX + ($heirStep * $index);
+
+            $name = trim((string)($heir['name'] ?? ''));
+            if ($name !== '') {
+                $pdf->SetFont('mspgothic03', '', 8.5);
+                $pdf->MultiCell(
+                    $heirW,
+                    5.2,
+                    $name,
+                    $wakusen,
+                    'C',
+                    0,
+                    0,
+                    $x,
+                    $nameY
+                );
+            }
+
+            $relationship = trim((string)($heir['relationship'] ?? ''));
+            if ($relationship !== '') {
+                $relFontSize = $this->resolveRelationshipFontSize($relationship);
+                $pdf->SetFont('mspgothic03', '', $relFontSize);
+                $pdf->setCellHeightRatio(1.0);
+                $pdf->MultiCell(
+                    $heirW,
+                    5.0,
+                    $relationship,
+                    $wakusen,
+                    'C',
+                    0,
+                    0,
+                    $x,
+                    $relationshipY
+                );
+                $pdf->setCellHeightRatio(1.25);
+            }
+        }
+
+        $pdf->SetFont('mspgothic03', '', 10);
+    }
+
+
+    private function inheritanceTaxTableYMap(): array
+    {
+        return [
+            // 下段表は「相続人」見出しの下に
+            // 1行目: 氏名
+            // 2行目: 続柄
+            // が入るため、数値本体は従来より約2段下へ寄せる
+            'property_total'         => ['y' => 153.5, 'align' => 'R'], // ①
+            'lifetime_gift'          => ['y' => 160.2, 'align' => 'R'], // ②
+            'taxable_total'          => ['y' => 166.0, 'align' => 'R'], // ③
+            'basic_deduction'        => ['y' => 172.2, 'align' => 'R'], // ④
+            'taxable_estate'         => ['y' => 179.0, 'align' => 'R'], // ⑤
+            'law_share'              => ['y' => 185.0, 'align' => 'C'], // ⑥
+            'legal_tax'              => ['y' => 191.0, 'align' => 'R'], // ⑦
+            'anbun_ratio'            => ['y' => 197.0, 'align' => 'R'], // ⑧
+            'sanzutsu_tax'           => ['y' => 204.0, 'align' => 'R'], // ⑨
+            'twowari'                => ['y' => 210.0, 'align' => 'R'], // ⑩
+            'calendar_gift_credit'   => ['y' => 216.0, 'align' => 'R'], // ⑪
+            'spouse_relief'          => ['y' => 222.0, 'align' => 'R'], // ⑫
+            'other_credit'           => ['y' => 228.0, 'align' => 'R'], // ⑬
+            'credits_total'          => ['y' => 234.0, 'align' => 'R'], // ⑭
+            'sashihiki_tax'          => ['y' => 241.0, 'align' => 'R'], // ⑮
+            'settlement_gift_credit' => ['y' => 247.0, 'align' => 'R'], // ⑯
+            'payable_tax'            => ['y' => 253.0, 'align' => 'R'], // ⑰
+            'refund_tax'             => ['y' => 260.0, 'align' => 'R'], // ⑱
+            'ratio'                  => ['y' => 266.0, 'align' => 'R'],
+        ];
+    }
+
+    private function renderInheritanceTaxCell(
+        TCPDF $pdf,
+        float $x,
+        float $y,
+        float $w,
+        $value,
+        string $align = 'R',
+        float $h = 5.5,
+        ?float $fontSize = null
+    ): void {
+        $text = $this->formatInheritanceTaxCellValue($value);
+        if ($text === '') {
+            return;
+        }
+
+        if ($fontSize !== null) {
+            $pdf->SetFont('mspgothic03', '', $fontSize);
+        }
+
+        $pdf->MultiCell($w, $h, $text, 0, $align, 0, 0, $x, $y);
+
+        if ($fontSize !== null) {
+            $pdf->SetFont('mspgothic03', '', 10);
+        }
+    }
+
+    private function formatInheritanceTaxCellValue($value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        if (is_string($value)) {
+            return trim($value);
+        }
+
+        if (is_int($value)) {
+            return $value === 0 ? '' : number_format($value);
+        }
+
+        if (is_float($value)) {
+            if (abs($value) < 0.000001) {
+                return '';
+            }
+
+            if (floor($value) === $value) {
+                return number_format((int)round($value));
+            }
+
+            return (string)$value;
+        }
+
+        if (is_numeric($value)) {
+            $numeric = (float)$value;
+            if (abs($numeric) < 0.000001) {
+                return '';
+            }
+
+            if (floor($numeric) === $numeric) {
+                return number_format((int)round($numeric));
+            }
+
+            return (string)$value;
+        }
+
+        return trim((string)$value);
+    }
+
+    // ============================================================
+    // STEP3 削除対象ここから
+    // 「各人別贈与プラン」専用ロジック
+    // - A3KakuzoyoPlanPageService へ移設済み
+    // - A3FamilyGiftPlanPageService では、下段に「各人別相続税額」を
+    //   描画する段階でこのブロックを削除する
+    // ============================================================
     /**
      * 家族表の下に「各人別贈与プラン」を描画する。
      *  - 縦軸：受贈者 9 人（recipient_no 2-10）
@@ -970,8 +1244,11 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         }
 
         return number_format($value);
-    }    
-    
+    }
+    // ============================================================
+    // STEP3 削除対象ここまで
+    // ============================================================
+
 
     private function resolveRelationshipFontSize(string $label): float
     {

@@ -51,7 +51,7 @@ class ZouyoPdfController extends Controller
         $pagesA3 = $this->normalizePages(
             (array) $request->input('pages_a3', []),
             0,
-            9
+            11
         );
 
 
@@ -65,6 +65,10 @@ class ZouyoPdfController extends Controller
             'paper_size' => $paperSize,
             'pages_a4'   => $pagesA4,
             'pages_a3'   => $pagesA3,
+            'paper_size'      => $paperSize,
+            'pages_a4'        => $pagesA4,
+            'pages_a3'        => $pagesA3,
+            'a3_page_version' => 2,            
          ]);
          
 
