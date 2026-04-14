@@ -179,15 +179,15 @@ class A3KakuzoyoPlanPageService implements ZouyoPdfPageInterface
         $leftX        = 12.8;
         $nameW        = 21.0;
         $dataStartX   = 49.4;
-        $colW         = 14.35;
+        $colW         = 14.30;
         $totalW       = 15.2;
-        $giftYearY    = 46.3;
-        $ageY         = 53.3;
-        $bodyStartY   = 61.1;
+        $giftYearY    = 47.0;
+        $ageY         = 54.0;
+        $bodyStartY   = 60.5;
         $rowH         = 6.95;
         $blockH       = $rowH * 3;
         $donorNameX   = 64.4;
-        $donorNameY   = 29.5;
+        $donorNameY   = 30.3;
         $donorNameW   = 27.5;
 
         $pdf->SetTextColor(0, 0, 0);
@@ -196,8 +196,25 @@ class A3KakuzoyoPlanPageService implements ZouyoPdfPageInterface
         $giftName = $this->resolveDonorName($dataId, $family);
         if ($giftName !== '') {
             $pdf->SetFont('mspgothic03', '', 10);
-            $pdf->MultiCell($donorNameW, 6, $giftName, $wakusen, 'L', 0, 0, $donorNameX, $donorNameY);
+            $pdf->MultiCell($donorNameW, 6, $giftName, $wakusen, 'C', 0, 0, $donorNameX, $donorNameY);
         }
+
+        //コメント
+        [$futureGiftMonth, $futureGiftDay] = $this->resolveFirstGiftMonthDay($payload);
+        
+        $strCom = '※';
+        $strCom .= sprintf(
+            '贈与は毎年%d月%d日に実施するものとします。なお、相続発生の現時点とは提案書の作成日付です。',
+            $futureGiftMonth,
+            $futureGiftDay
+        );
+
+        if ($strCom !== '') {
+            $pdf->SetFont('mspgothic03', '', 12);
+            $pdf->MultiCell(250, 6, $strCom, $wakusen, 'L', 0, 0, 110.0, 31.5);
+        }
+
+
 
         // 贈与年 / 年齢
         $pdf->SetFont('mspgothic03', '', 8.5);
@@ -228,7 +245,7 @@ class A3KakuzoyoPlanPageService implements ZouyoPdfPageInterface
             $blockY = $bodyStartY + ($blockH * $slotIndex);
 
             $pdf->SetFont('mspgothic03', '', 9);
-            $pdf->MultiCell($nameW, 6, $displayName, $wakusen, 'C', 0, 0, $leftX, $blockY + $rowH);
+            $pdf->MultiCell($nameW, 6, $displayName, $wakusen, 'L', 0, 0, $leftX, $blockY + $rowH);
 
             $pdf->SetFont('mspgothic03', '', 8.5);
             $x = $dataStartX;
@@ -237,7 +254,7 @@ class A3KakuzoyoPlanPageService implements ZouyoPdfPageInterface
                 $settlementValue = (int)($matrix[$recipientNo][$yearKey]['settlement'] ?? 0);
                 $totalValue      = $calendarValue + $settlementValue;
 
-            $pdf->MultiCell(
+                $pdf->MultiCell(
                     $colW,
                     5.5,
                     $this->formatCalendarPlanAmountByYearKey($yearKey, $calendarValue),
@@ -643,6 +660,55 @@ private function resolveDonorName(int $dataId, array $family): string
 
         return (int)date('Y');
     }
+
+
+    /**
+     * 第1回目贈与年月日の月日を解決する。
+     * future_zouyo.blade の future_base_month / future_base_day を SoT とし、
+     * payload の header 配下を最優先で参照する。
+     * 値が取得できない場合のみ従来どおり 5/6 を既定値とする。
+     *
+     * @return array{0:int,1:int}
+     */
+    private function resolveFirstGiftMonthDay(array $payload): array
+    {
+        $monthCandidates = [
+            $payload['header']['month'] ?? null,
+            $payload['future_base_month'] ?? null,
+            $payload['header_month'] ?? null,
+        ];
+
+        $dayCandidates = [
+            $payload['header']['day'] ?? null,
+            $payload['future_base_day'] ?? null,
+            $payload['header_day'] ?? null,
+        ];
+
+        $month = 0;
+        foreach ($monthCandidates as $candidate) {
+            $value = $this->toIntValue($candidate);
+            if ($value >= 1 && $value <= 12) {
+                $month = $value;
+                break;
+            }
+        }
+
+        $day = 0;
+        foreach ($dayCandidates as $candidate) {
+            $value = $this->toIntValue($candidate);
+            if ($value >= 1 && $value <= 31) {
+                $day = $value;
+                break;
+            }
+        }
+
+        return [$month ?: 1, $day ?: 1];
+    }
+
+
+
+
+
 
     /**
      * 文字列混在でも int 化
