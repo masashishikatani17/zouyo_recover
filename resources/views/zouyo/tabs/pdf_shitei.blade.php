@@ -6,8 +6,14 @@
     //    A4PDF は廃止のため、指定画面は A3 固定
      $pdfState = session()->get("zouyo.pdf_state.{$dataId}", []);
      $pdfSelectedPagesA3 = $pdfState['pages_a3'] ?? [];
- 
+
      $pdfSelectedPagesA3 = array_values(array_unique(array_map('intval', (array)$pdfSelectedPagesA3)));
+     // 「各人別相続税」(page id: 6) は廃止
+     $pdfSelectedPagesA3 = array_values(array_filter(
+         $pdfSelectedPagesA3,
+         fn (int $pageId) => $pageId !== 6
+     ));
+
 @endphp
 
 <div class="mt-3">
@@ -78,10 +84,6 @@
      
             <label>
                 <input type="checkbox" name="pages_a3[]" value="5" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(5, $pdfSelectedPagesA3, true))> 各人別贈与額
-            </label>
-     
-            <label>
-                <input type="checkbox" name="pages_a3[]" value="6" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(6, $pdfSelectedPagesA3, true))> 各人別相続税
             </label>
      
             <label>

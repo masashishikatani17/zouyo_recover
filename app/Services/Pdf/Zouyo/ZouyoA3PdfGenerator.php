@@ -12,7 +12,6 @@ use App\Services\Pdf\Zouyo\Pages\A3KazeihikakuintroPageService;
 use App\Services\Pdf\Zouyo\Pages\A3KakuzoyoPlanPageService;
 use App\Services\Pdf\Zouyo\Pages\A3FamilyGiftPlanPageService;
 use App\Services\Pdf\Zouyo\Pages\A3KakujinZouyoPageService;
-use App\Services\Pdf\Zouyo\Pages\A3KakujinSouzokuPageService;
 use App\Services\Pdf\Zouyo\Pages\A3SouzokukazeikakakuPageService;
 use App\Services\Pdf\Zouyo\Pages\A3SouzokuninzaisansuiiPageService;
 use App\Services\Pdf\Zouyo\Pages\A3KakujinzaisansuiiPageService;
@@ -28,11 +27,12 @@ use App\Services\Pdf\Zouyo\Pages\A3OwariniPageService;
  *  2: 比較説明
  *  3: 家族構成贈与プラン
  *  4: 各人別贈与額
- *  5: 各人別相続税
- *  6: 贈与後の相続税
- *  7: 相続人別財産の推移
- *  8: 各人別財産の推移
- *  9: おわりに
+ *  5: 各人別贈与額
+ *  6: （廃止）
+ *  7: 贈与後の相続税
+ *  8: 相続人別財産の推移
+ *  9: 各人別財産の推移
+ * 10: おわりに
 */
 class ZouyoA3PdfGenerator
 {
@@ -49,7 +49,6 @@ class ZouyoA3PdfGenerator
         '3' => A3FamilyGiftPlanPageService::class,
         '4' => A3KakuzoyoPlanPageService::class,
         '5' => A3KakujinZouyoPageService::class,
-        '6' => A3KakujinSouzokuPageService::class,
         '7' => A3SouzokukazeikakakuPageService::class,
         '8' => A3SouzokuninzaisansuiiPageService::class,
         '9' => A3KakujinzaisansuiiPageService::class,
@@ -127,15 +126,15 @@ class ZouyoA3PdfGenerator
     }
 
     /**
-     * ページIDの正規化（0〜11 の整数に限定・重複削除）。
-     *
+     * ページIDの正規化（現在有効なページIDのみに限定・重複削除）。     
      * @param  array<int,int|string> $pageIds
      * @return array<int,int>
      */
     private function normalizePageIds(array $pageIds): array
     {
         $pageIds = array_map('intval', $pageIds);
-        $pageIds = array_filter($pageIds, fn (int $v) => $v >= 0 && $v <= 11);
+        $allowedPageIds = array_map('intval', array_keys($this->pageServiceMap));
+        $pageIds = array_filter($pageIds, fn (int $v) => in_array($v, $allowedPageIds, true));
         $pageIds = array_values(array_unique($pageIds));
 
         return $pageIds;
