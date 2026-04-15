@@ -238,7 +238,7 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
         $plotLeft   = 26.0;
         $plotRight  = 6.0;
         $plotTop    = 10.0;
-        $plotBottom = 14.0;
+        $plotBottom =  5.0;
 
 
         $plotX = $chartX + $plotLeft;
@@ -260,12 +260,19 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
         //相続税額
         //淡い緑色
         $sozokuFillColor = [218, 236, 214];
+        //斜線色は緑の濃い色
+        //相続税額: RGB(92, 122, 86) の濃い緑
+        $sozokuHatchColor = [92, 122, 86];        
         //右斜め線
         $sozokuHatch     = 'right';        
+
 
         //贈与税額
         //淡い赤色
         $giftFillColor   = [236, 198, 198];
+        //斜線色は赤の濃い色
+        //贈与税額: RGB(146, 92, 92) の濃い赤
+        $giftHatchColor  = [146, 92, 92];        
         //左斜め線
         $giftHatch       = 'left';
 
@@ -328,7 +335,7 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
             'L',
             0,
             0,
-            $plotX - 14.0,
+            $plotX - 10.0,
             $chartY + 1.0,
             true,
             0,
@@ -340,14 +347,14 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
 
         // 凡例
         $legendTotalW = 82.0;
-        $legendX = $chartX + (($chartW - $legendTotalW) / 2.0);
+        $legendX = $chartX + (($chartW - $legendTotalW) / 2.0) + 10.0;
         $legendY = $chartY + 1.0;
 
-        $this->drawLegendSwatch($pdf, $legendX, $legendY, 5.0, 3.5, $sozokuFillColor, $sozokuHatch);
+        $this->drawLegendSwatch($pdf, $legendX, $legendY, 5.0, 3.5, $sozokuFillColor, $sozokuHatch, $sozokuHatchColor);
         $pdf->MultiCell(28, 6, '相続税額', 0, 'L', 0, 0, $legendX + 7.0, $legendY - 1.2, true, 0, false, true, 6, 'M');
  
- 
-        $this->drawLegendSwatch($pdf, $legendX + 42.0, $legendY, 5.0, 3.5, $giftFillColor, $giftHatch);
+
+        $this->drawLegendSwatch($pdf, $legendX + 42.0, $legendY, 5.0, 3.5, $giftFillColor, $giftHatch, $giftHatchColor);
         $pdf->MultiCell(28, 6, '贈与税額', 0, 'L', 0, 0, $legendX + 49.0, $legendY - 1.2, true, 0, false, true, 6, 'M');
 
 
@@ -379,8 +386,8 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
                 $axisMin,
                 $axisMax,
                 [
-                    ['value' => (int)$row['sozoku_before'], 'fill' => $sozokuFillColor, 'hatch' => $sozokuHatch],
-                    ['value' => (int)$row['gift_before'],   'fill' => $giftFillColor,   'hatch' => $giftHatch],
+                    ['value' => (int)$row['sozoku_before'], 'fill' => $sozokuFillColor, 'hatch' => $sozokuHatch, 'hatch_color' => $sozokuHatchColor],
+                    ['value' => (int)$row['gift_before'],   'fill' => $giftFillColor,   'hatch' => $giftHatch,   'hatch_color' => $giftHatchColor],
                 ]
             );
 
@@ -393,9 +400,8 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
                 $axisMin,
                 $axisMax,
                 [
-                    ['value' => (int)$row['sozoku_after'], 'fill' => $sozokuFillColor, 'hatch' => $sozokuHatch],
-                    ['value' => (int)$row['gift_after'],   'fill' => $giftFillColor,   'hatch' => $giftHatch],
-                 
+                    ['value' => (int)$row['sozoku_after'], 'fill' => $sozokuFillColor, 'hatch' => $sozokuHatch, 'hatch_color' => $sozokuHatchColor],
+                    ['value' => (int)$row['gift_after'],   'fill' => $giftFillColor,   'hatch' => $giftHatch,   'hatch_color' => $giftHatchColor],
                 ]
             );
 
@@ -470,7 +476,8 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
                 'M'
             );
 
-            $pdf->MultiCell($groupWidth, 6, $row['label'], 0, 'C', 0, 0, $groupStartX, $baseY + 7.2, true, 0, false, true, 6, 'M');
+            //横軸　項目名　5年後 / 10年後 / 15年後 / 20年後
+            $pdf->MultiCell($groupWidth, 6, $row['label'], 0, 'C', 0, 0, $groupStartX, $baseY + 3.6, true, 0, false, true, 6, 'M');
         
         
         }
@@ -599,6 +606,7 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
 
             $fillColor = $segment['fill'] ?? [255, 255, 255];
             $hatch     = $segment['hatch'] ?? '';
+            $hatchColor = $segment['hatch_color'] ?? [90, 90, 90];            
             [$r, $g, $b] = $fillColor;
   
             $pdf->SetFillColor($r, $g, $b);
@@ -606,7 +614,7 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
             $pdf->Rect($x, $yTop, $width, $height, 'DF');
 
             if (is_string($hatch) && $hatch !== '') {
-                $this->drawHatchPattern($pdf, $x, $yTop, $width, $height, $hatch);
+                $this->drawHatchPattern($pdf, $x, $yTop, $width, $height, $hatch, $hatchColor);
             }
 
             $pdf->SetDrawColor(0, 0, 0);
@@ -968,13 +976,14 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
         float $w,
         float $h,
         array $fillColor,
-        string $hatch
+        string $hatch,
+        array $hatchColor
     ): void {
         $pdf->SetFillColor($fillColor[0], $fillColor[1], $fillColor[2]);
         $pdf->SetDrawColor(0, 0, 0);
         $pdf->Rect($x, $y, $w, $h, 'DF');
 
-        $this->drawHatchPattern($pdf, $x, $y, $w, $h, $hatch, 1.4, 0.12);
+        $this->drawHatchPattern($pdf, $x, $y, $w, $h, $hatch, $hatchColor, 1.4, 0.12);
 
         $pdf->SetDrawColor(0, 0, 0);
         $pdf->Rect($x, $y, $w, $h, 'D');
@@ -988,6 +997,7 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
         float $w,
         float $h,
         string $direction,
+        array $lineColor,        
         float $spacing = 1.8,
         float $lineWidth = 0.08
     ): void {
@@ -995,7 +1005,7 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
             return;
         }
 
-        $pdf->SetDrawColor(90, 90, 90);
+        $pdf->SetDrawColor($lineColor[0], $lineColor[1], $lineColor[2]);
         $pdf->SetLineWidth($lineWidth);
 
         $limit = $w + $h;
