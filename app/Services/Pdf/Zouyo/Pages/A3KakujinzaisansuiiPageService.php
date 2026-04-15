@@ -267,6 +267,8 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
         $plotFillColor   = [255, 252, 242]; // 極薄いクリーム
         $beforeFillColor = [218, 236, 214]; // 淡い緑
         $afterFillColor  = [236, 198, 198]; // 淡い赤
+        $beforeHatchColor = [92, 122, 86];  // 濃い緑
+        $afterHatchColor  = [146, 92, 92];  // 濃い赤        
         $beforeHatch     = 'right';         // 右斜め線
         $afterHatch      = 'left';          // 左斜め線
 
@@ -352,7 +354,7 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
         $legendX = $chartX + (($chartW - $legendTotalW) / 2.0) + 22.0;
         $legendY = $chartY + 6.0;
 
-        $this->drawLegendSwatch($pdf, $legendX, $legendY, 5.0, 3.5, $beforeFillColor, $beforeHatch);
+        $this->drawLegendSwatch($pdf, $legendX, $legendY, 5.0, 3.5, $beforeFillColor, $beforeHatch, $beforeHatchColor);
         $pdf->MultiCell(
             45,
             6,
@@ -371,7 +373,8 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
             'M'
         );
 
-        $this->drawLegendSwatch($pdf, $legendX + 55.0, $legendY, 5.0, 3.5, $afterFillColor, $afterHatch);
+
+        $this->drawLegendSwatch($pdf, $legendX + 55.0, $legendY, 5.0, 3.5, $afterFillColor, $afterHatch, $afterHatchColor);
         $pdf->MultiCell(
             45,
             6,
@@ -420,7 +423,8 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
                 $axisMax,
                 $beforeValue,
                 $beforeFillColor,
-                $beforeHatch
+                $beforeHatch,
+                $beforeHatchColor
             );
 
             $this->drawSingleBar(
@@ -433,7 +437,8 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
                 $axisMax,
                 $afterValue,
                 $afterFillColor,
-                $afterHatch
+                $afterHatch,
+                $afterHatchColor
             );
 
             $pdf->SetFont('mspgothic03', '', 10.0);
@@ -647,7 +652,8 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
         int $axisMax,
         int $value,
         array $fillColor,
-        string $hatch
+        string $hatch,
+        array $hatchColor
     ): void {
         if ($axisMax <= $axisMin) {
             return;
@@ -669,7 +675,7 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
         $pdf->Rect($x, $yTop, $width, $height, 'DF');
 
         if ($hatch !== '') {
-            $this->drawHatchPattern($pdf, $x, $yTop, $width, $height, $hatch);
+            $this->drawHatchPattern($pdf, $x, $yTop, $width, $height, $hatch, $hatchColor);
         }
 
         $pdf->SetDrawColor(0, 0, 0);
@@ -683,13 +689,14 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
         float $w,
         float $h,
         array $fillColor,
-        string $hatch
+        string $hatch,
+        array $hatchColor
     ): void {
         $pdf->SetFillColor($fillColor[0], $fillColor[1], $fillColor[2]);
         $pdf->SetDrawColor(0, 0, 0);
         $pdf->Rect($x, $y, $w, $h, 'DF');
 
-        $this->drawHatchPattern($pdf, $x, $y, $w, $h, $hatch, 1.4, 0.12);
+        $this->drawHatchPattern($pdf, $x, $y, $w, $h, $hatch, $hatchColor, 1.4, 0.12);        
 
         $pdf->SetDrawColor(0, 0, 0);
         $pdf->Rect($x, $y, $w, $h, 'D');
@@ -702,6 +709,7 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
         float $w,
         float $h,
         string $direction,
+        array $lineColor,        
         float $spacing = 1.8,
         float $lineWidth = 0.08
     ): void {
@@ -709,7 +717,7 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
             return;
         }
 
-        $pdf->SetDrawColor(90, 90, 90);
+        $pdf->SetDrawColor($lineColor[0], $lineColor[1], $lineColor[2]);        
         $pdf->SetLineWidth($lineWidth);
 
         $limit = $w + $h;
