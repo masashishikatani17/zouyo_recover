@@ -245,7 +245,30 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
         $plotY = $chartY + $plotTop;
         $plotW = $chartW - $plotLeft - $plotRight;
         $plotH = $chartH - $plotTop - $plotBottom;
-        
+
+
+        // カラー設定
+        // - プロットエリア: 極薄いクリーム
+        // - 相続税額: 淡い緑
+        // - 贈与税額: 淡い赤
+        // 明度差を少しつけて、モノクロ印刷時でも判別しやすくする
+
+        //プロットエリア
+        //極薄いクリーム色
+        $plotFillColor   = [255, 252, 242];
+
+        //相続税額
+        //淡い緑色
+        $sozokuFillColor = [218, 236, 214];
+        //右斜め線
+        $sozokuHatch     = 'right';        
+
+        //贈与税額
+        //淡い赤色
+        $giftFillColor   = [236, 198, 198];
+        //左斜め線
+        $giftHatch       = 'left';
+
 
         // 棒の上に置く「対策前」「対策後」がプロット上端を超えそうなら、
         // 上限額を1目盛ずつ上げて上方向の余白を確保する
@@ -265,7 +288,8 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
         // 枠・目盛り
         $pdf->SetLineWidth(0.2);
         $pdf->SetDrawColor(0, 0, 0);
-        $pdf->Rect($plotX, $plotY, $plotW, $plotH);
+        $pdf->SetFillColor($plotFillColor[0], $plotFillColor[1], $plotFillColor[2]);
+        $pdf->Rect($plotX, $plotY, $plotW, $plotH, 'DF');
 
         $pdf->SetFont('mspgothic03', '', 12.0);        
         $pdf->SetTextColor(0, 0, 0);
@@ -319,13 +343,11 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
         $legendX = $chartX + (($chartW - $legendTotalW) / 2.0);
         $legendY = $chartY + 1.0;
 
-        $pdf->SetFillColor(220, 220, 220);
-        $pdf->Rect($legendX, $legendY, 5.0, 3.5, 'DF');
+        $this->drawLegendSwatch($pdf, $legendX, $legendY, 5.0, 3.5, $sozokuFillColor, $sozokuHatch);
         $pdf->MultiCell(28, 6, '相続税額', 0, 'L', 0, 0, $legendX + 7.0, $legendY - 1.2, true, 0, false, true, 6, 'M');
  
  
-        $pdf->SetFillColor(150, 150, 150);
-        $pdf->Rect($legendX + 42.0, $legendY, 5.0, 3.5, 'DF');
+        $this->drawLegendSwatch($pdf, $legendX + 42.0, $legendY, 5.0, 3.5, $giftFillColor, $giftHatch);
         $pdf->MultiCell(28, 6, '贈与税額', 0, 'L', 0, 0, $legendX + 49.0, $legendY - 1.2, true, 0, false, true, 6, 'M');
 
 
@@ -357,8 +379,8 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
                 $axisMin,
                 $axisMax,
                 [
-                    ['value' => (int)$row['sozoku_before'], 'fill' => [220, 220, 220]],
-                    ['value' => (int)$row['gift_before'],   'fill' => [150, 150, 150]],
+                    ['value' => (int)$row['sozoku_before'], 'fill' => $sozokuFillColor, 'hatch' => $sozokuHatch],
+                    ['value' => (int)$row['gift_before'],   'fill' => $giftFillColor,   'hatch' => $giftHatch],
                 ]
             );
 
@@ -371,8 +393,9 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
                 $axisMin,
                 $axisMax,
                 [
-                    ['value' => (int)$row['sozoku_after'], 'fill' => [220, 220, 220]],
-                    ['value' => (int)$row['gift_after'],   'fill' => [150, 150, 150]],
+                    ['value' => (int)$row['sozoku_after'], 'fill' => $sozokuFillColor, 'hatch' => $sozokuHatch],
+                    ['value' => (int)$row['gift_after'],   'fill' => $giftFillColor,   'hatch' => $giftHatch],
+                 
                 ]
             );
 
@@ -574,16 +597,25 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
                 continue;
             }
 
-             [$r, $g, $b] = $segment['fill'];
- 
-             $pdf->SetFillColor($r, $g, $b);
-             $pdf->SetDrawColor(0, 0, 0);
+            $fillColor = $segment['fill'] ?? [255, 255, 255];
+            $hatch     = $segment['hatch'] ?? '';
+            [$r, $g, $b] = $fillColor;
+  
+            $pdf->SetFillColor($r, $g, $b);
+            $pdf->SetDrawColor(0, 0, 0);
             $pdf->Rect($x, $yTop, $width, $height, 'DF');
- 
+
+            if (is_string($hatch) && $hatch !== '') {
+                $this->drawHatchPattern($pdf, $x, $yTop, $width, $height, $hatch);
+            }
+
+            $pdf->SetDrawColor(0, 0, 0);
+            $pdf->Rect($x, $yTop, $width, $height, 'D');
+  
             $segmentBottom = $segmentTop;
-         }
-     }
-     
+        }
+    }
+
 
 
     
@@ -866,13 +898,20 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
         float $plotY,
         float $plotH
     ): void {
+
+
         if ($beforeTotal <= 0 || $afterTotal <= 0 || $axisMax <= $axisMin) {
+            return;
+        }
+
+        // 「対策後」の方が税額が多い場合は、
+        // 差額の点線表示・棒間の直線表示は行わない
+        if ($afterTotal > $beforeTotal) {
             return;
         }
 
         $beforeY = $this->valueToChartY($beforeTotal, $axisMin, $axisMax, $plotY, $plotH);
         $afterY  = $this->valueToChartY($afterTotal, $axisMin, $axisMax, $plotY, $plotH);
-
         $topY    = min($beforeY, $afterY);
         $bottomY = max($beforeY, $afterY);
 
@@ -919,6 +958,70 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
             'dash'  => 0,
             'color' => [0, 0, 0],
         ]);
+    }
+
+
+    private function drawLegendSwatch(
+        TCPDF $pdf,
+        float $x,
+        float $y,
+        float $w,
+        float $h,
+        array $fillColor,
+        string $hatch
+    ): void {
+        $pdf->SetFillColor($fillColor[0], $fillColor[1], $fillColor[2]);
+        $pdf->SetDrawColor(0, 0, 0);
+        $pdf->Rect($x, $y, $w, $h, 'DF');
+
+        $this->drawHatchPattern($pdf, $x, $y, $w, $h, $hatch, 1.4, 0.12);
+
+        $pdf->SetDrawColor(0, 0, 0);
+        $pdf->Rect($x, $y, $w, $h, 'D');
+    }
+
+    //グラフに斜め線模様を付ける
+    private function drawHatchPattern(
+        TCPDF $pdf,
+        float $x,
+        float $y,
+        float $w,
+        float $h,
+        string $direction,
+        float $spacing = 1.8,
+        float $lineWidth = 0.08
+    ): void {
+        if ($w <= 0 || $h <= 0) {
+            return;
+        }
+
+        $pdf->SetDrawColor(90, 90, 90);
+        $pdf->SetLineWidth($lineWidth);
+
+        $limit = $w + $h;
+
+        for ($k = 0.0; $k <= $limit; $k += $spacing) {
+            if ($direction === 'right') {
+                // 右斜め線（／）
+                $startX = ($k <= $h) ? $x : ($x + $k - $h);
+                $startY = ($k <= $h) ? ($y + $h - $k) : $y;
+                $endX   = ($k <= $w) ? ($x + $k) : ($x + $w);
+                $endY   = ($k <= $w) ? ($y + $h) : ($y + $h - ($k - $w));
+            } else {
+                // 左斜め線（＼）
+                $startX = ($k <= $h) ? $x : ($x + $k - $h);
+                $startY = ($k <= $h) ? ($y + $k) : ($y + $h);
+                $endX   = ($k <= $w) ? ($x + $k) : ($x + $w);
+                $endY   = ($k <= $w) ? $y : ($y + $k - $w);
+            }
+
+            if ($endX > $startX || abs($endY - $startY) > 0.01) {
+                $pdf->Line($startX, $startY, $endX, $endY);
+            }
+        }
+
+        $pdf->SetLineWidth(0.2);
+        $pdf->SetDrawColor(0, 0, 0);
     }
 
 }

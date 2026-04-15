@@ -752,9 +752,11 @@ class ZouyotaxCalc
         //   （Undefined array key "idx" を根絶）
         $heirs = $this->normalizeHeirsWithIdx($heirs);
 
-        // ★ payload 側の bunsi / bunbo を heirs に補完する
-        //   - Controller から渡された $heirs に bunsi/bunbo が入っていないケースを吸収
-        //   - 画面入力値（old含む）を優先して人数カウントと後続計算を安定化
+        // ★ payload 側の bunsi / bunbo を heirs に反映する
+        //   - Controller から渡された $heirs が古い値を持っている場合でも、
+        //     画面入力値を最優先で採用する
+        //   - PDF生成時に stale な $heirs が渡ると 1/3,1/3,1/3 が残るため、
+        //     「空のときだけ補完」ではなく「payload に値があれば上書き」にする
         $toIntOrZero = static function ($v): int {
             if (is_array($v)) {
                 return 0;
@@ -789,15 +791,16 @@ class ZouyotaxCalc
                 continue;
             }
 
-            if ((int)($heirsByIdx[$idx]['bunsi'] ?? 0) <= 0 && $payloadBunsi > 0) {
+            if ($payloadBunsi > 0) {
                 $heirsByIdx[$idx]['bunsi'] = $payloadBunsi;
             }
-            if ((int)($heirsByIdx[$idx]['bunbo'] ?? 0) <= 0 && $payloadBunbo > 0) {
+            if ($payloadBunbo > 0) {
                 $heirsByIdx[$idx]['bunbo'] = $payloadBunbo;
             }
-            if ((int)($heirsByIdx[$idx]['rel_code'] ?? 0) <= 0 && $payloadRelCode > 0) {
+            if ($payloadRelCode > 0) {
                 $heirsByIdx[$idx]['rel_code'] = $payloadRelCode;
             }
+
         }
 
 
