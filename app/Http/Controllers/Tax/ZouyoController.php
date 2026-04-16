@@ -3571,10 +3571,32 @@ if ($i == 1){
         ]);
         */
 
-        $this->storeProposalHeaderAndFamily($data->id, $request);
-        
-        $this->touchDataUpdatedAt((int) $data->id);        
-    
+        try {
+            $this->storeProposalHeaderAndFamily($data->id, $request);
+            $this->touchDataUpdatedAt((int) $data->id);
+        } catch (\Throwable $e) {
+            if ($request->expectsJson() || $request->ajax()) {
+                $payload = [
+                    'success' => false,
+                    'message' => '家族構成とヘッダの保存に失敗しました。',
+                ];
+
+                if (config('app.debug')) {
+                    $payload['debug'] = [
+                        'exception' => get_class($e),
+                        'message'   => $e->getMessage(),
+                        'file'      => $e->getFile(),
+                        'line'      => $e->getLine(),
+                    ];
+                }
+
+                return response()->json($payload, 422);
+            }
+
+            return back()->withErrors('家族構成とヘッダの保存に失敗しました。')->withInput();
+        }
+
+
         if ($request->expectsJson() || $request->ajax()) {
             return response()->json(['success' => true]);
         }
