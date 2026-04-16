@@ -1004,6 +1004,12 @@ Log::debug('PDF selected pages in makeInputContext', [
             ]);
             */
 
+            $cashTotalK     = $this->toThousand($req->input('cash.110'));
+            $otherTotalK    = $this->signedThousandOrNull($req->input('other_asset.110'));
+            $propertyTotalK = ($cashTotalK !== null || $otherTotalK !== null)
+                ? (int)($cashTotalK ?? 0) + (int)($otherTotalK ?? 0)
+                : $this->signedThousandOrNull($req->input('property.110'));
+
             \App\Models\ProposalHeader::updateOrCreate(
                 ['data_id' => $dataId],
                 [
@@ -1015,8 +1021,8 @@ Log::debug('PDF selected pages in makeInputContext', [
                     'proposer_name' => $this->strOrNull($req->input('header_proposer_name')),
                     // 参考：利回り/合計欄があれば保存（存在しないならnull）
                     'after_tax_yield_percent' => $this->percentOrNull($req->input('per')),
-                    'property_total_thousand'  => $this->signedThousandOrNull($req->input('property.110')),
-                    'cash_total_thousand'      => $this->toThousand($req->input('cash.110')),
+                    'property_total_thousand'  => $propertyTotalK,
+                    'cash_total_thousand'      => $cashTotalK,
                 ]
             );
         } else {
@@ -1090,9 +1096,12 @@ Log::debug('PDF selected pages in makeInputContext', [
             // ★ 金融資産(cash) + その他資産(other_asset) から合計(property)をサーバ側でも補完
             //   - JS未発火で property が空でも確実に保存されるようにする
             // --------------------------------------------------------
-            $cashK     = $this->toThousand($req->input("cash.$i"));                // 千円
-            $otherK    = $this->signedThousandOrNull($req->input("other_asset.$i"));// 千円（負数許可）
-            $propertyK = $this->signedThousandOrNull($req->input("property.$i"));   // 千円（負数許可）
+              $cashK           = $this->toThousand($req->input("cash.$i"));                  // 千円
+              $otherK          = $this->signedThousandOrNull($req->input("other_asset.$i")); // 千円（負数許可）
+              $postedPropertyK = $this->signedThousandOrNull($req->input("property.$i"));    // 千円（readonly）
+              $propertyK       = ($cashK !== null || $otherK !== null)
+                  ? (int)($cashK ?? 0) + (int)($otherK ?? 0)
+                  : $postedPropertyK;
 
             if ($propertyK === null && ($cashK !== null || $otherK !== null)) {
                 $propertyK = (int)($cashK ?? 0) + (int)($otherK ?? 0);
@@ -1249,23 +1258,29 @@ Log::debug('PDF selected pages in makeInputContext', [
         if ($v === null || $v === '') return null;
         return (int)preg_replace('/[^\d]/', '', (string)$v);
     }
-    
 
-    private function signedThousandOrNull($v): ?int
-    {
-        if ($v === null || $v === '') return null;
 
-        $s = preg_replace('/[^\d\-]/u', '', mb_convert_kana((string)$v, 'n', 'UTF-8'));
-        if ($s === '' || $s === '-' || $s === '+') {
-            return null;
-        }
+      private function signedThousandOrNull($v): ?int
+      {
+          if ($v === null || $v === '') {
+              return null;
+          }
 
-        $negative = str_starts_with($s, '-');
-        $digits   = preg_replace('/[^\d]/', '', $s);
-        if ($digits === '') return null;
+          $s = mb_convert_kana((string)$v, 'n', 'UTF-8');
+          $s = preg_replace('/[，,]/u', '', $s);
+          $s = preg_replace('/^[\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]+/u', '-', $s);
 
-        return $negative ? -((int)$digits) : (int)$digits;
-    }
+          if ($s === '' || $s === '-' || $s === '+') {
+              return null;
+          }
+
+          $negative = str_starts_with($s, '-');
+          $digits   = preg_replace('/[^\d]/u', '', $s);
+
+          return $digits === '' ? null : ($negative ? -((int)$digits) : (int)$digits);
+      }    
+
+
 
     private function percentOrNull($v): ?float
     {
@@ -4029,8 +4044,12 @@ Log::debug('[FG DEBUG] set_tax20 full request', [
             $civilBunbo       = $this->strOrNull($row['civil_share_bunbo'] ?? null);
             $twentyPercent    = (int)((bool)($row['twenty_percent_add'] ?? ($row['surcharge_twenty_percent'] ?? 0)));
             $tokureiZouyo     = (int)((bool)($row['tokurei_zouyo'] ?? 0));
-            $propertyThousand = $this->signedThousandOrNull($row['property'] ?? ($row['property_thousand'] ?? null));
-            $cashThousand     = $this->toThousand($row['cash'] ?? ($row['cash_thousand'] ?? null));
+            $cashThousand        = $this->toThousand($row['cash'] ?? ($row['cash_thousand'] ?? null));
+            $otherThousand       = $this->signedThousandOrNull($row['other_asset'] ?? null);
+            $propertyRawThousand = $this->signedThousandOrNull($row['property'] ?? ($row['property_thousand'] ?? null));
+            $propertyThousand    = ($cashThousand !== null || $otherThousand !== null)
+                  ? (int)($cashThousand ?? 0) + (int)($otherThousand ?? 0)
+                  : $propertyRawThousand;
 
             $heirCategory = array_key_exists('heir_category', $row)
                 ? $this->intOrNull($row['heir_category'])

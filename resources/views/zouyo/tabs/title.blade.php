@@ -88,9 +88,17 @@
   
 
   .signed-money-input {
+    display: inline-block !important;
+    width: calc(100% - 2.8em) !important;
+    min-width: 0;
     text-align: right;
     ime-mode: disabled;
-    width: 100%;    
+    vertical-align: middle;
+  }
+
+  .signed-money-cell {
+    white-space: nowrap;
+    overflow: hidden;
   }
 
 </style>
@@ -193,9 +201,11 @@
     
 
     $resolveOtherAssetValue = function (array $row = []) {
+
         if (array_key_exists('other_asset', $row) && $row['other_asset'] !== null && $row['other_asset'] !== '') {
             return (int) $row['other_asset'];
         }
+
 
         if (array_key_exists('property', $row) && $row['property'] !== null && $row['property'] !== '') {
             return (int) $row['property'] - (int) ($row['cash'] ?? 0);
@@ -205,13 +215,20 @@
     };
 
     $resolveHeaderOtherAssetValue = function (array $header = []) {
+
+        if (
+            isset($header['property_110'], $header['cash_110']) &&
+            $header['property_110'] !== null && $header['property_110'] !== ''
+        ) {
+            return (int) $header['property_110'] - (int) $header['cash_110'];
+        }
+
         if (array_key_exists('other_asset_110', $header) && $header['other_asset_110'] !== null && $header['other_asset_110'] !== '') {
             return (int) $header['other_asset_110'];
         }
 
-        return (isset($header['property_110'], $header['cash_110']))
-            ? (int) $header['property_110'] - (int) $header['cash_110']
-            : '';
+        return '';
+
     };
 
 @endphp
@@ -443,7 +460,7 @@
                      name="cash[1]" style="ime-mode:disabled;" inputmode="numeric"
                      value="{{ old('cash.1', isset($prefillFamily[1]['cash']) ? number_format($prefillFamily[1]['cash']) : '') }}">千円
             </td>
-            <td class="border px-1 py-0">
+            <td class="border px-1 py-0 signed-money-cell">              
               @php $row1OtherAsset = $resolveOtherAssetValue($prefillFamily[1] ?? []); @endphp
                 <input type="text" class="form-control title-field-input js-signed-money signed-money-input"
                     name="other_asset[1]" style="ime-mode:disabled;" inputmode="text"
@@ -578,7 +595,7 @@
                        name="cash[{{ $i }}]" style="ime-mode:disabled;" inputmode="numeric"
                        value="{{ old('cash.'.$i, isset($prefillFamily[$i]['cash']) ? number_format($prefillFamily[$i]['cash']) : '') }}">千円
               </td>
-              <td class="border px-1 py-0">
+              <td class="border px-1 py-0 signed-money-cell">
                 @php $rowOtherAsset = $resolveOtherAssetValue($prefillFamily[$i] ?? []); @endphp
                 <input type="text" class="form-control title-field-input js-signed-money signed-money-input"
                        name="other_asset[{{ $i }}]" style="ime-mode:disabled;" inputmode="text"
@@ -932,48 +949,60 @@ document.addEventListener('DOMContentLoaded', function () {
 
 <script>
   // 3桁区切りのカンマを付ける関数
+  function normalizeUnsignedRaw(value) {
+    return String(value ?? '')
+      .replace(/[，,]/g, '')
+      .replace(/[^\d]/g, '');
+   }
+
   function normalizeSignedRaw(value) {
     let raw = String(value ?? '').trim();
 
-    // 先頭の各種マイナス記号を半角ハイフンに正規化
-    raw = raw.replace(/^[\-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]+/u, '-');
-
-    // カンマ除去
-    raw = raw.replace(/,/g, '');
+    // 全角マイナス類を半角へ統一
+    raw = raw
+      .replace(/[，,]/g, '')
+      .replace(/^[\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]+/u, '-');
 
     const negative = raw.startsWith('-');
+    const digits = raw.replace(/[^\d]/g, '');
 
-    // 数字以外は除去。ただし先頭負号だけは保持
-    raw = raw.replace(/[^\d]/g, '');
-
-    if (raw === '') {
+    if (digits === '') {
       return negative ? '-' : '';
     }
 
-    return `${negative ? '-' : ''}${raw}`;
+    return `${negative ? '-' : ''}${digits}`;
   }
 
-  function formatNumber(input) {
-    const normalized = normalizeSignedRaw(input.value);
+  function formatUnsignedNumber(input) {
+    const digits = normalizeUnsignedRaw(input.value);
+    input.value = digits === '' ? '' : Number(digits).toLocaleString();
+  }
 
+  function formatSignedNumber(input) {
+    const normalized = normalizeSignedRaw(input.value);
     if (normalized === '' || normalized === '-') {
       input.value = normalized;
       return;
     }
 
     const negative = normalized.startsWith('-');
-    const digits = normalized.replace('-', '');
+    const digits = normalized.slice(1 * negative);    
     input.value = `${negative ? '-' : ''}${Number(digits).toLocaleString()}`;
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    // 金融資産と合計は従来どおり
     const unsignedPriceInputs = document.querySelectorAll(
       'input[name^="cash["], input[name^="property["]'
     );
 
     unsignedPriceInputs.forEach(function (input) {
     
+      if (!input.hasAttribute('readonly')) {
+        input.addEventListener('input', function () {
+          input.value = normalizeUnsignedRaw(input.value);
+        });
+      }
+
       input.addEventListener('keydown', function (e) {
         const allowedKeys = [
           'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
@@ -984,25 +1013,18 @@ document.addEventListener('DOMContentLoaded', function () {
           return;
         }
 
-        if (e.key === '-') {
-          if (input.selectionStart !== 0 || String(input.value ?? '').includes('-')) {
-            e.preventDefault();
-          }
-          return;
-        }
-
         if (!/^\d$/.test(e.key)) {
           e.preventDefault();
         }
+        
       });
     
-
       input.addEventListener('blur', function () {
-        formatNumber(input);
+        formatUnsignedNumber(input);
       });
+
     });
 
-    // その他資産は負数入力を許可
     const signedPriceInputs = document.querySelectorAll('.js-signed-money');
 
       input.addEventListener('keydown', function (e) {
@@ -1030,16 +1052,47 @@ document.addEventListener('DOMContentLoaded', function () {
       });
 
     signedPriceInputs.forEach(function (input) {
+      input.addEventListener('keydown', function (e) {
+        const allowedKeys = [
+          'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
+          'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'
+        ];
+
+        if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) {
+          return;
+        }
+
+        if (/^[-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]$/u.test(e.key)) {
+          const current = String(input.value ?? '');
+          const selStart = input.selectionStart ?? 0;
+          const selEnd   = input.selectionEnd ?? 0;
+          const nextCurrent = current.slice(0, selStart) + current.slice(selEnd);
+
+          if (selStart !== 0 || /^[-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]/u.test(nextCurrent)) {
+            e.preventDefault();
+          }
+          return;
+        }
+
+        if (!/^\d$/.test(e.key)) {
+          e.preventDefault();
+        }
+      });
+
+      input.addEventListener('input', function () {
         input.value = normalizeSignedRaw(input.value);
       });
 
       input.addEventListener('blur', function () {
-        formatNumber(input);
+        formatSignedNumber(input);
       });
-    });
-  });
-</script>
 
+      formatSignedNumber(input);
+
+    });
+
+  });
++</script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function () {
@@ -1144,10 +1197,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const normalized = normalizeSignedRaw(str);
     if (normalized === '' || normalized === '-') return 0;
 
-    const negative = normalized.startsWith('-');
-    const digits = normalized.replace('-', '');
-    const value = parseInt(digits, 10) || 0;
-    return negative ? -value : value;
+    return parseInt(normalized, 10) || 0;
 
   }
 
