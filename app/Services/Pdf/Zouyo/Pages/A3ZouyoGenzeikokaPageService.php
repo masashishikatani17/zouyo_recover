@@ -477,7 +477,7 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
             );
 
             //横軸　項目名　5年後 / 10年後 / 15年後 / 20年後
-            $pdf->MultiCell($groupWidth, 6, $row['label'], 0, 'C', 0, 0, $groupStartX, $baseY + 3.6, true, 0, false, true, 6, 'M');
+            $pdf->MultiCell($groupWidth, 6, $row['label'], 0, 'C', 0, 0, $groupStartX, $baseY + 2.0, true, 0, false, true, 6, 'M');
         
         
         }
@@ -947,12 +947,12 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
         ]);
         $pdf->Rect($leftX, $topY, $rightX - $leftX, $bottomY - $topY, 'D');
 
-        // 対策前・対策後の差額位置を棒の間で直線表示
+        // 対策前・対策後の差額位置を棒の間で点線表示
         $pdf->SetLineStyle([
             'width' => 0.25,
             'cap'   => 'butt',
             'join'  => 'miter',
-            'dash'  => 0,
+            'dash'  => '2,2',       //0は実線
             'color' => [0, 0, 0],
         ]);
         $pdf->Line($lineStartX, $beforeY, $lineEndX, $beforeY);

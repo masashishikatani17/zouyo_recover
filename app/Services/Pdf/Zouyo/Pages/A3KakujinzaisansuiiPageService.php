@@ -192,11 +192,16 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
                     $afterRow = [];
                 }
 
+                // ★対策前は「運用益加算後の財産の額」を正とする
                 $beforeYen = $this->firstInt([
+                    $beforeRow['before_asset_after_yen'] ?? null,
+                    $afterRow['before_asset_after_yen'] ?? null,
+                    $beforeRow['asset_after_yen'] ?? null,
                     $beforeRow['asset_total_yen'] ?? null,
                     $afterRow['asset_total_yen'] ?? null,
                 ]);
 
+                // ★対策後は従来どおり「対策後の財産の額」
                 $afterYen = $this->firstInt([
                     $afterRow['asset_after_yen'] ?? null,
                     $afterRow['asset_total_yen'] ?? null,
@@ -206,19 +211,19 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
                 $afterK  = $this->toK($afterYen);
                 $diffK   = $afterK - $beforeK;
 
-                $result['before'][$recipientNo][$i] = $beforeK;
+                $result['before'][$recipientNo][$i]   = $beforeK;
                 $result['increase'][$recipientNo][$i] = $diffK;
-                $result['after'][$recipientNo][$i] = $afterK;
+                $result['after'][$recipientNo][$i]    = $afterK;
 
-                $result['totals']['before'][$i] += $beforeK;
+                // ★下部グラフの totals.before も同じ「対策前の財産の額」を基準にする
+                $result['totals']['before'][$i]   += $beforeK;
                 $result['totals']['increase'][$i] += $diffK;
-                $result['totals']['after'][$i] += $afterK;
+                $result['totals']['after'][$i]    += $afterK;
             }
         }
 
         return $result;
     }
-    
     
 
     /**
@@ -309,6 +314,18 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
                 'M'
             );
         }
+
+
+        // 0基準線
+        $zeroY = $this->valueToChartY(0, $axisMin, $axisMax, $plotY, $plotH);
+        $pdf->SetDrawColor(120, 120, 120);
+        $pdf->SetLineWidth(0.35);
+        $pdf->Line($plotX, $zeroY, $plotX + $plotW, $zeroY);
+
+        // 以降の描画用に戻す
+        $pdf->SetLineWidth(0.2);
+        $pdf->SetDrawColor(0, 0, 0);
+
 
         $pdf->MultiCell(
             24,
@@ -578,53 +595,93 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
         return $rows;
     }
 
-    private function calculateAssetChartAxis(array $values): array
-    {
-        $values = array_map('intval', $values);
+     private function calculateAssetChartAxis(array $values): array
+     {
+         $values = array_map('intval', $values);
+ 
+         if (empty($values)) {
+             return [-1000, 1000, 500];            
+         }
+ 
+         $minValue = min($values);
+         $maxValue = max($values);
+ 
+         if ($minValue === 0 && $maxValue === 0) {
+             return [-1000, 1000, 500];            
+         }
+ 
+        $resolveNiceStep = static function (int $span): int {
+            $rawStep = max(1, (int)ceil($span / 4));
 
-        if (empty($values)) {
-            return [0, 1000, 200];
+            $magnitude = (int)pow(10, floor(log10((float)$rawStep)));
+            $normalized = $rawStep / max(1, $magnitude);
+
+            if ($normalized <= 1) {
+                $nice = 1;
+            } elseif ($normalized <= 2) {
+                $nice = 2;
+            } elseif ($normalized <= 5) {
+                $nice = 5;
+            } else {
+                $nice = 10;
+            }
+
+            return (int)($nice * $magnitude);
+        };
+
+        // 対策前・対策後とも全てプラスで、かつ値のレンジが比較的狭いときは
+        // 最大値の 2/3 付近を下限候補にして拡大表示する。
+        // ただし実データが切れないよう、最小値がその候補以上のときだけ採用する。
+        if ($minValue > 0 && $maxValue > 0) {
+            $proposedMin = (int)floor($maxValue * 2 / 3);
+
+            if ($minValue >= $proposedMin) {
+                $visibleSpan = max(1, $maxValue - $proposedMin);
+                $tickStep = $resolveNiceStep($visibleSpan);
+
+                // 2/3 は目安なので、きれいな目盛りに丸める
+                $axisMin = (int)(floor($proposedMin / $tickStep) * $tickStep);
+                $axisMax = (int)(ceil($maxValue / $tickStep) * $tickStep);
+
+                // 目盛り本数が少なすぎる場合は上側を少し広げる
+                if (($axisMax - $axisMin) < ($tickStep * 3)) {
+                    $axisMax = $axisMin + ($tickStep * 3);
+                }
+
+                if ($axisMax > $axisMin) {
+                    return [$axisMin, $axisMax, $tickStep];
+                }
+            }
         }
 
-        $minValue = min($values);
-        $maxValue = max($values);
+        // それ以外は従来どおり
+        // 正負どちらでも見やすいよう、絶対値側も含めて目盛幅を決める
+        $spanBase   = max(1, abs($minValue), abs($maxValue), $maxValue - $minValue);
+        $tickStep   = $resolveNiceStep($spanBase);
 
-        if ($maxValue <= 0) {
-            return [0, 1000, 200];
-        }
-
-        $range      = max(1, $maxValue - $minValue);
-        $rawStep    = max(1, (int)ceil($range / 4));
-        $magnitude  = (int)pow(10, floor(log10((float)$rawStep)));
-        $normalized = $rawStep / max(1, $magnitude);
-
-        if ($normalized <= 1) {
-            $nice = 1;
-        } elseif ($normalized <= 2) {
-            $nice = 2;
-        } elseif ($normalized <= 5) {
-            $nice = 5;
-        } else {
-            $nice = 10;
-        }
-
-        $tickStep = (int)($nice * $magnitude);
-
-        // 最小値・最大値に少し余白を持たせる
-        $axisMin = (int)(floor(($minValue - ($tickStep * 0.8)) / $tickStep) * $tickStep);
-        $axisMax = (int)(ceil(($maxValue + ($tickStep * 0.8)) / $tickStep) * $tickStep);
-
-        if ($axisMin < 0) {
+        // 0を必ず含みつつ、実データを含む最小のきれいな目盛範囲にする
+        if ($minValue >= 0) {
             $axisMin = 0;
+            $axisMax = (int)(ceil($maxValue / $tickStep) * $tickStep);
+        } elseif ($maxValue <= 0) {
+            $axisMin = (int)(floor($minValue / $tickStep) * $tickStep);
+            $axisMax = 0;
+        } else {
+            $axisMin = (int)(floor($minValue / $tickStep) * $tickStep);
+            $axisMax = (int)(ceil($maxValue / $tickStep) * $tickStep);
         }
 
         if ($axisMax <= $axisMin) {
-            $axisMax = $axisMin + ($tickStep * 4);
+            if ($axisMin >= 0) {
+                $axisMax = $axisMin + ($tickStep * 4);
+            } else {
+                $axisMin = $axisMax - ($tickStep * 4);
+            }
         }
 
         return [$axisMin, $axisMax, $tickStep];
-    }
-
+     }
+     
     private function valueToChartY(
         int $value,
         int $axisMin,
@@ -659,10 +716,12 @@ class A3KakujinzaisansuiiPageService implements ZouyoPdfPageInterface
             return;
         }
 
-        $visibleTop = min(max($value, $axisMin), $axisMax);
-        $yTop       = $this->valueToChartY($visibleTop, $axisMin, $axisMax, $plotY, $plotH);
-        $yBottom    = $this->valueToChartY($axisMin, $axisMin, $axisMax, $plotY, $plotH);
-        $height     = $yBottom - $yTop;
+        $visibleValue = min(max($value, $axisMin), $axisMax);
+        $baseValue    = min(max(0, $axisMin), $axisMax);
+        $valueY       = $this->valueToChartY($visibleValue, $axisMin, $axisMax, $plotY, $plotH);
+        $baseY        = $this->valueToChartY($baseValue, $axisMin, $axisMax, $plotY, $plotH);
+        $yTop         = min($valueY, $baseY);
+        $height       = abs($baseY - $valueY);
 
         if ($height <= 0) {
             return;

@@ -127,28 +127,28 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
         $sectionDefs = [
             [
                 'name_x'      => 14.0,
-                'name_y'      => 25.9,
+                'name_y'      => 25.6,
                 'name_w'      => 35.0,
                 'rel_y'       => 28.4,
-                'table_top_y' => 31.1,
+                'table_top_y' => 30.0,
                 'col_start_x' => 76.2,
                 'col_width'   => 15.90,
             ],
             [
                 'name_x'      => 14.0,
-                'name_y'      => 115.4,
+                'name_y'      => 114.0,
                 'name_w'      => 35.0,
                 'rel_y'       => 127.0,
-                'table_top_y' => 120.5,
+                'table_top_y' => 118.9,
                 'col_start_x' => 76.2,
                 'col_width'   => 15.90,
             ],
             [
                 'name_x'      => 14.0,
-                'name_y'      => 204.6,
+                'name_y'      => 203.0,
                 'name_w'      => 35.0,
                 'rel_y'       => 225.6,
-                'table_top_y' => 210.1,
+                'table_top_y' => 207.6,
                 'col_start_x' => 76.2,
                 'col_width'   => 15.90,
             ],
@@ -236,15 +236,17 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
                 $pRow = [];
             }
 
-            $assetTotal      = (int)round(((int)($pRow['asset_total_yen']              ?? 0)) / 1000, 0);
-            $giftCalReceived = (int)round(((int)($pRow['gift_calendar_received_yen']   ?? 0)) / 1000, 0);
-            $giftCalTax      = (int)round(((int)($pRow['gift_calendar_tax_yen']        ?? 0)) / 1000, 0);
-            $giftSetReceived = (int)round(((int)($pRow['gift_settlement_received_yen'] ?? 0)) / 1000, 0);
-            $giftSetTax      = (int)round(((int)($pRow['gift_settlement_tax_yen']      ?? 0)) / 1000, 0);
-            $inheritNet      = (int)round(((int)($pRow['inherit_net_yen']              ?? 0)) / 1000, 0);
-            $inheritTax      = (int)round(((int)($pRow['inherit_tax_yen']              ?? 0)) / 1000, 0);
-            $investGain      = (int)round(((int)($pRow['investment_gain_yen']          ?? 0)) / 1000, 0);
-            $assetAfter      = (int)round(((int)($pRow['asset_after_yen']              ?? 0)) / 1000, 0);
+            $assetTotal         = (int)round(((int)($pRow['asset_total_yen']               ?? 0)) / 1000, 0);
+            $beforeInvestGain   = (int)round(((int)($pRow['before_investment_gain_yen']    ?? 0)) / 1000, 0);
+            $beforeAssetAfter   = (int)round(((int)($pRow['before_asset_after_yen']        ?? ($pRow['asset_total_yen'] ?? 0))) / 1000, 0);
+            $giftCalReceived    = (int)round(((int)($pRow['gift_calendar_received_yen']    ?? 0)) / 1000, 0);
+            $giftCalTax         = (int)round(((int)($pRow['gift_calendar_tax_yen']         ?? 0)) / 1000, 0);
+            $giftSetReceived    = (int)round(((int)($pRow['gift_settlement_received_yen']  ?? 0)) / 1000, 0);
+            $giftSetTax         = (int)round(((int)($pRow['gift_settlement_tax_yen']       ?? 0)) / 1000, 0);
+            $inheritNet         = (int)round(((int)($pRow['inherit_net_yen']               ?? 0)) / 1000, 0);
+            $inheritTax         = (int)round(((int)($pRow['inherit_tax_yen']               ?? 0)) / 1000, 0);
+            $afterInvestGain    = (int)round(((int)($pRow['investment_gain_yen']           ?? 0)) / 1000, 0);
+            $afterAssetAfter    = (int)round(((int)($pRow['asset_after_yen']               ?? 0)) / 1000, 0);
 
             $ageText = '';
             if ($age0 !== null) {
@@ -259,6 +261,11 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
             $this->drawValueCell($pdf, $x + 2.0, $rowYs['age'],       $colWidth, $ageText,                  'C');
             $this->drawValueCell($pdf, $x, $rowYs['asset_total'],     $colWidth, $this->fmt($assetTotal),   $valueAlign);
  
+
+            $this->drawValueCell($pdf, $x, $rowYs['before_invest_gain'], $colWidth, $i === 0 ? $currentNoValue : $this->fmt($beforeInvestGain), $i === 0 ? $currentNoValueAlign : $valueAlign);
+            $this->drawValueCell($pdf, $x, $rowYs['before_asset_after'], $colWidth, $this->fmt($beforeAssetAfter), $valueAlign);
+
+ 
             $this->drawValueCell($pdf, $x, $rowYs['gift_cal_receive'],$colWidth, $i === 0 ? $currentNoValue : $this->fmt($giftCalReceived), $i === 0 ? $currentNoValueAlign : $valueAlign);
             $this->drawValueCell($pdf, $x, $rowYs['gift_cal_tax'],    $colWidth, $i === 0 ? $currentNoValue : $this->fmt(-$giftCalTax),     $i === 0 ? $currentNoValueAlign : $valueAlign);
             $this->drawValueCell($pdf, $x, $rowYs['gift_set_receive'],$colWidth, $i === 0 ? $currentNoValue : $this->fmt($giftSetReceived), $i === 0 ? $currentNoValueAlign : $valueAlign);
@@ -267,9 +274,9 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
             $this->drawValueCell($pdf, $x, $rowYs['inherit_net'],     $colWidth, $this->fmt($inheritNet),   $valueAlign);
             $this->drawValueCell($pdf, $x, $rowYs['inherit_tax'],     $colWidth, $this->fmt(-$inheritTax),  $valueAlign);
  
-            $this->drawValueCell($pdf, $x, $rowYs['invest_gain'],     $colWidth, $i === 0 ? $currentNoValue : $this->fmt($investGain),      $i === 0 ? $currentNoValueAlign : $valueAlign);
- 
-            $this->drawValueCell($pdf, $x, $rowYs['asset_after'],     $colWidth, $this->fmt($assetAfter),   $valueAlign);
+            $this->drawValueCell($pdf, $x, $rowYs['after_invest_gain'], $colWidth, $i === 0 ? $currentNoValue : $this->fmt($afterInvestGain), $i === 0 ? $currentNoValueAlign : $valueAlign);
+  
+            $this->drawValueCell($pdf, $x, $rowYs['asset_after'],     $colWidth, $this->fmt($afterAssetAfter),   $valueAlign);
 
 
         }
@@ -278,7 +285,7 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
 
         $this->drawCommentBlock(
             $pdf,
-            (float)$section['table_top_y'] + 65.0,
+            (float)$section['table_top_y'] + 73.0,
             $recipientNo,
             $prefillFamily,
             $prefillHeader
@@ -313,7 +320,9 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
         $cashK   = (int)($prefillFamily[$recipientNo]['cash'] ?? 0);
         $per     = (float)($prefillHeader['per'] ?? 0);
 
-        $line1 = '資産運用による増加額とは対策前の所有財産のうち金融資産である'
+        $line1 = '資産運用による増加額とは、対策前は金融資産である'
+            . number_format($cashK)
+            . '千円に対して、対策後は金融資産である'
             . number_format($cashK)
             . '千円と贈与による財産の額から贈与税を控除した額を運用した場合の運用益です';
 
@@ -335,16 +344,18 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
     private function buildRowYs(float $tableTopY): array
     {
         return [
-            'age'              => $tableTopY +  6.2,
-            'asset_total'      => $tableTopY + 12.4,
-            'gift_cal_receive' => $tableTopY + 18.0,
-            'gift_cal_tax'     => $tableTopY + 24.0,
-            'gift_set_receive' => $tableTopY + 30.0,
-            'gift_set_tax'     => $tableTopY + 36.0,
-            'inherit_net'      => $tableTopY + 42.0,
-            'inherit_tax'      => $tableTopY + 48.0,
-            'invest_gain'      => $tableTopY + 53.8,
-            'asset_after'      => $tableTopY + 59.8,
+            'age'                => $tableTopY +  6.2,
+            'asset_total'        => $tableTopY + 12.2,
+            'before_invest_gain' => $tableTopY + 17.4,
+            'before_asset_after' => $tableTopY + 23.0,
+            'gift_cal_receive'   => $tableTopY + 28.5,
+            'gift_cal_tax'       => $tableTopY + 34.0,
+            'gift_set_receive'   => $tableTopY + 39.5,
+            'gift_set_tax'       => $tableTopY + 45.0,
+            'inherit_net'        => $tableTopY + 50.5,
+            'inherit_tax'        => $tableTopY + 56.0,
+            'after_invest_gain'  => $tableTopY + 61.9,
+            'asset_after'        => $tableTopY + 67.5,
         ];
     }
 

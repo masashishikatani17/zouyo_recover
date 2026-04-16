@@ -6973,8 +6973,14 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
         }
 
         // 千円 → 円
-        $propertyYen = max(0, $propK) * 1000;
+        // ★ property はマイナス保持
+        //   各相続人の「その他資産」がマイナスのケースでは、
+        //   対策前の財産の額もマイナス表示できるようにする
+        $propertyYen = $propK * 1000;
+
+        // ★ cash は運用元本として使うため、従来どおりマイナスは 0 扱いを維持
         $cashYen     = max(0, $cashK) * 1000;
+
 
         return [$propertyYen, $cashYen];
     }
@@ -6985,6 +6991,12 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
      * - asset_total_yen:
      *     非金融資産 ＋ 金融資産 * (1 + rate)^t
      *       …元々保有している財産の推移（贈与・相続による増減は含めない）
+     +     * - before_investment_gain_yen:
+     *     対策前の資産運用による増加額（その年の増加額）
+     *     …元々保有している金融資産のみを運用した場合の年次増加額
+     * - before_asset_after_yen:
+     *     対策前の財産の額
+     *     …元々保有している財産に、元々保有している金融資産の運用益累計を加算した額* 
      * - gift_calendar_received_yen / gift_calendar_tax_yen:
      *     将来暦年贈与プラン（future_gift_plan_entries）の金額・税額（円）
      * - gift_settlement_received_yen / gift_settlement_tax_yen:
@@ -6996,10 +7008,13 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
      *     相続税額
      *     → heirs[].final_after_settlement_yen を使用
      * - investment_gain_yen:
-     *     金融資産部分の運用による増加額のみ
-     * - asset_after_yen:
-     *     現段階では「元々の財産＋贈与純増（受領額?贈与税）」までを反映した対策後残高
-     *
+     *     対策後の資産運用による増加額（その年の増加額）
+     *     …元々保有している金融資産＋贈与純増累計を運用した場合の年次増加額     
+     * 
+     * * - asset_after_yen:
+     *     対策後の財産の額
+     *     …元々の財産＋贈与純増＋相続純増＋対策後運用益を反映した額
+     * 
      * 返却形式:
      *   [
      *     2 => ['timeline' => [ t => [...], ... ]],
@@ -7112,25 +7127,20 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
             // 受贈者自身の property/cash（現時点）を解決
             [$propertyYen, $cashYen] = $this->resolvePersonBaseFromPayloadOrDb($payload, $dataId, $idx);
 
-            $nonCash = max(0, $propertyYen - $cashYen);
-            
+            // ★非金融資産はマイナス保持
+            //   例：金融資産 0、その他資産 -150,000千円 の場合、
+            //   対策前の財産の額も負値のまま推移させる
+            $nonCash = $propertyYen - $cashYen;
+
+
             $nongrownCashYen = $cashYen;
 
             $timeline = [];
 
             for ($t = 0; $t <= 20; $t++) {
 
-                // t年後の金融資産（利回り反映）
-                $grownCash = (int)round(
-                    $cashYen * pow(1 + $safeRate, max(0, $t))
-                );
                 // 受贈者がもともと持っている財産の推移
-                //$assetTotal = $nonCash + $grownCash;
-                //資金運用益はここでは加算しない
                 $assetTotal = $nonCash + $nongrownCashYen;
-
-                // 運用による増加額（金融資産部分のみ）
-                $investmentGain = $grownCash - $cashYen;
 
                 // 相続取得・相続税（該当が無ければ 0）
                 $inheritForT = $inheritByYearIdx[$t][$idx] ?? ['inherit_net_yen' => 0, 'inherit_tax_yen' => 0];
@@ -7138,6 +7148,10 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                 $timeline[$t] = [
                     // 所有財産の額（対策前の推移）
                     'asset_total_yen'              => $assetTotal,
+                    
+                    // 対策前の資産運用による増加額 / 財産の額
+                    'before_investment_gain_yen'   => 0,
+                    'before_asset_after_yen'       => $assetTotal,                    
 
                     // 贈与による純財産の増加（対策前ベース）
                     'gift_net_before_yen'          => 0,
@@ -7151,8 +7165,8 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                     'inherit_net_yen'              => $inheritForT['inherit_net_yen'],
                     'inherit_tax_yen'              => $inheritForT['inherit_tax_yen'],
 
-                    // 資産運用による増加額（★）
-                    'investment_gain_yen'          => $investmentGain,
+                    // 対策後の資産運用による増加額（★）
+                    'investment_gain_yen'          => 0,
 
                     // 財産の額（対策後）…現段階では「元々の資産＋贈与純増」を想定
                     'asset_after_yen'              => $assetTotal,
@@ -7240,10 +7254,21 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
             $nonCashYen  = (int)($person['base_non_cash_yen'] ?? 0);  // 元々の非金融資産
 
             if ($cashYen < 0)    { $cashYen = 0; }
-            if ($nonCashYen < 0) { $nonCashYen = 0; }
+            // ★非金融資産はマイナス保持（ここで 0 に潰さない）
+
+
+            // 対策前の元々の金融資産だけに対する運用益累計
+            $beforeInvestmentGainCum = 0;
+            
 
             // 贈与で取得した純資産ポートフォリオの「期首残高」
             $giftValuePrev      = 0;
+            // 贈与純増・相続純増・相続税・運用益の累計（t=0 からの累積）
+            // 対策後の運用対象残高
+            //   = 元々の金融資産 + 贈与純増 + 再投資された運用益
+            // ★当年に受けた贈与も、その年の運用対象に含める
+            $afterInvestableAssetPrev = $cashYen;
+
             // 贈与純増・相続純増・相続税・運用益の累計（t=0 からの累積）
             $giftNetCum         = 0;
             $inheritNetCum      = 0;
@@ -7267,9 +7292,9 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                     $cashYen * pow(1 + $safeRate, max(0, $t))
                 );
                 $origGainYear  = $grownCashCurr - $grownCashPrev;
+                $beforeInvestmentGainCum += $origGainYear;                
 
                 // ベースライン資産（非金融＋元々の金融資産の当年末残高）
-                //資金運用益はここでは加算しない
                 $assetBaseline = $nonCashYen + $nongrownCashYen;
 
                 // ★ 当年の「純贈与元本」（受領額?贈与税）※この年だけの増分
@@ -7277,28 +7302,29 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                 // 贈与純増の累計（t=0?tの合計）
                 $giftNetCum += $netGiftThisYear;
 
-                // 将来贈与分については「贈与を受けた翌年から」運用益が発生するようにする。
-                //   1) 期首残高 giftValuePrev にだけ利息を付ける
-                //   2) 当年の純贈与元本 netGiftThisYear は利息計算の後に元本として追加
-                $giftValueGrown = (int)round(
-                    $giftValuePrev * (1 + $safeRate)
-                );
-                // 贈与分の当年運用益 = 期末（贈与前）残高 ? 期首残高
-                $giftGainYear   = $giftValueGrown - $giftValuePrev;
-                // 期末残高（贈与後）＝利息付与後の残高＋当年の純贈与元本
-                $giftValueCurr  = $giftValueGrown + $netGiftThisYear;
+                // ★対策後の運用益
+                //   元々の金融資産 + 当年までの贈与純増 を、その年の運用対象に含める
+                //   したがって、1年目以降に贈与がある年は、その年の運用益から対策前より大きくなる
+                $afterInvestableBase = $afterInvestableAssetPrev + $netGiftThisYear;
 
-                // 当年の総運用益（贈与分の運用益はマイナスにならないようガード）
-                $investmentGainYear = $origGainYear + max(0, $giftGainYear);
-                // 運用益の累計（t=0?tの合計）
-                $investmentGainCum += $investmentGainYear;
+                if ($t === 0) {
+                    $afterInvestableAssetCurr = $afterInvestableBase;
+                    $investmentGainYear = 0;
+                } else {
+                    $afterInvestableAssetCurr = (int)round(
+                        $afterInvestableBase * (1 + $safeRate)
+                    );
+                    $investmentGainYear = max(0, $afterInvestableAssetCurr - $afterInvestableBase);
+                }
 
+                // 対策後の運用益累計
+                $investmentGainCum = max(0, $afterInvestableAssetCurr - ($cashYen + $giftNetCum));
+ 
 
                 // 対策後の財産額 = 所有財産の額（対策前）＋贈与純増＋相続純増＋当年の運用益
                 //  ・贈与純増       = gift_net_before_yen（暦年＋精算の受領額?贈与税）
                 //  ・相続純増       = inherit_net_yen ? inherit_tax_yen
                 //  ・運用益（当年分）= investment_gain_yen
-                $giftNet    = (int)($timeline[$t]['gift_net_before_yen'] ?? 0);
                 // 相続による純財産増加・相続税（この年の増分）
                 $inheritNetThis = (int)($timeline[$t]['inherit_net_yen'] ?? 0);
                 $inheritTaxThis = (int)($timeline[$t]['inherit_tax_yen'] ?? 0);
@@ -7306,9 +7332,10 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                 $inheritTaxCum  += $inheritTaxThis;
 
                 // 表示用の各項目を上書き
-                $timeline[$t]['asset_total_yen']     = $assetBaseline;
-                // 運用益は「その年までの累計額」として表示
-                $timeline[$t]['investment_gain_yen'] = $investmentGainYear;
+                $timeline[$t]['asset_total_yen']            = $assetBaseline;
+                $timeline[$t]['before_investment_gain_yen'] = $origGainYear;
+                $timeline[$t]['before_asset_after_yen']     = $assetBaseline + $beforeInvestmentGainCum;
+                $timeline[$t]['investment_gain_yen']        = $investmentGainYear;
 
 
 
@@ -7317,8 +7344,9 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                 $timeline[$t]['asset_after_yen']
                     = $assetBaseline + $giftNetCum + $inheritNetThis - $inheritTaxThis + $investmentGainCum;
 
-                // 次年度に繰り越す贈与ポートフォリオ期末残高
-                $giftValuePrev = $giftValueCurr;
+                // 次年度に繰り越す対策後の運用対象残高
+                $afterInvestableAssetPrev = $afterInvestableAssetCurr;
+
             }
 
             $person['timeline'] = $timeline;
