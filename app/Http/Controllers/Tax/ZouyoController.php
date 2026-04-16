@@ -1268,7 +1268,13 @@ Log::debug('PDF selected pages in makeInputContext', [
 
           $s = mb_convert_kana((string)$v, 'n', 'UTF-8');
           $s = preg_replace('/[，,]/u', '', $s);
-          $s = preg_replace('/^[\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]+/u', '-', $s);
+          $s = preg_replace(
+              '/^[\-\x{2212}\x{30FC}\x{FF0D}\x{2010}\x{2011}\x{2012}\x{2013}\x{2014}\x{2015}\x{FE63}\x{FF70}]+/u',
+              '-',
+              $s
+          );
+
+
 
           if ($s === '' || $s === '-' || $s === '+') {
               return null;

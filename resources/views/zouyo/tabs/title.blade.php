@@ -199,16 +199,13 @@
     $defaultHeaderTitle = '贈与における相続対策のご提案';
     $today = today();
     
-
     $resolveOtherAssetValue = function (array $row = []) {
+        if (array_key_exists('property', $row) && $row['property'] !== null && $row['property'] !== '') {
+            return (int) $row['property'] - (int) ($row['cash'] ?? 0);
+        }
 
         if (array_key_exists('other_asset', $row) && $row['other_asset'] !== null && $row['other_asset'] !== '') {
             return (int) $row['other_asset'];
-        }
-
-
-        if (array_key_exists('property', $row) && $row['property'] !== null && $row['property'] !== '') {
-            return (int) $row['property'] - (int) ($row['cash'] ?? 0);
         }
 
         return '';
@@ -946,32 +943,30 @@ document.addEventListener('DOMContentLoaded', function () {
 
 </script>
 
-
 <script>
-  // 3桁区切りのカンマを付ける関数
   function normalizeUnsignedRaw(value) {
     return String(value ?? '')
       .replace(/[，,]/g, '')
       .replace(/[^\d]/g, '');
-   }
+  }
 
-  function normalizeSignedRaw(value) {
+function normalizeSignedRaw(value) {
     let raw = String(value ?? '').trim();
 
-    // 全角マイナス類を半角へ統一
     raw = raw
       .replace(/[，,]/g, '')
-      .replace(/^[\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]+/u, '-');
+      .replace(/^[\-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]+/u, '-');
 
     const negative = raw.startsWith('-');
     const digits = raw.replace(/[^\d]/g, '');
 
-    if (digits === '') {
+  if (digits === '') {
       return negative ? '-' : '';
     }
 
     return `${negative ? '-' : ''}${digits}`;
   }
+
 
   function formatUnsignedNumber(input) {
     const digits = normalizeUnsignedRaw(input.value);
@@ -980,95 +975,69 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function formatSignedNumber(input) {
     const normalized = normalizeSignedRaw(input.value);
+
     if (normalized === '' || normalized === '-') {
-      input.value = normalized;
+      input.value = '';
       return;
     }
 
     const negative = normalized.startsWith('-');
-    const digits = normalized.slice(1 * negative);    
+    const digits = negative ? normalized.slice(1) : normalized;
     input.value = `${negative ? '-' : ''}${Number(digits).toLocaleString()}`;
   }
 
-  document.addEventListener('DOMContentLoaded', function () {
-    const unsignedPriceInputs = document.querySelectorAll(
-      'input[name^="cash["], input[name^="property["]'
-    );
+  function isEditingControlKey(e) {
+    return [
+      'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
+      'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'
+    ].includes(e.key) || e.ctrlKey || e.metaKey;
+  }
 
-    unsignedPriceInputs.forEach(function (input) {
-    
+  document.addEventListener('DOMContentLoaded', function () {
+    const cashInputs = document.querySelectorAll('input[name^="cash["]');
+
+    cashInputs.forEach(function (input) {
       if (!input.hasAttribute('readonly')) {
+        input.addEventListener('keydown', function (e) {
+          if (isEditingControlKey(e)) {
+            return;
+          }
+
+          if (!/^\d$/.test(e.key)) {
+            e.preventDefault();
+          }
+        });
+
         input.addEventListener('input', function () {
           input.value = normalizeUnsignedRaw(input.value);
         });
       }
 
-      input.addEventListener('keydown', function (e) {
-        const allowedKeys = [
-          'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
-          'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'
-        ];
-
-        if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) {
-          return;
-        }
-
-        if (!/^\d$/.test(e.key)) {
-          e.preventDefault();
-        }
-        
-      });
-    
       input.addEventListener('blur', function () {
         formatUnsignedNumber(input);
       });
 
+      formatUnsignedNumber(input);
     });
 
     const signedPriceInputs = document.querySelectorAll('.js-signed-money');
 
-      input.addEventListener('keydown', function (e) {
-        const allowedKeys = [
-          'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
-          'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'
-        ];
-
-        if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) {
-          return;
-        }
-
-        // 半角/全角/Unicode の各種マイナスを許可（先頭1つだけ）
-        if (/^[-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]$/u.test(e.key)) {
-          const value = String(input.value ?? '');
-          if (input.selectionStart !== 0 || /^[-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]/u.test(value)) {
-            e.preventDefault();
-          }
-          return;
-        }
-
-        if (!/^\d$/.test(e.key)) {
-          e.preventDefault();
-        }
-      });
-
     signedPriceInputs.forEach(function (input) {
       input.addEventListener('keydown', function (e) {
-        const allowedKeys = [
-          'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
-          'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'
-        ];
-
-        if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) {
+        if (isEditingControlKey(e)) {
           return;
         }
 
         if (/^[-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]$/u.test(e.key)) {
           const current = String(input.value ?? '');
           const selStart = input.selectionStart ?? 0;
-          const selEnd   = input.selectionEnd ?? 0;
-          const nextCurrent = current.slice(0, selStart) + current.slice(selEnd);
+          const selEnd = input.selectionEnd ?? 0;
+          const currentWithoutSelection = current.slice(0, selStart) + current.slice(selEnd);
 
-          if (selStart !== 0 || /^[-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]/u.test(nextCurrent)) {
+          if (
+            selStart !== 0 ||
+            /^[-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]/u.test(currentWithoutSelection)
+          ) {
             e.preventDefault();
           }
           return;
@@ -1088,32 +1057,7 @@ document.addEventListener('DOMContentLoaded', function () {
       });
 
       formatSignedNumber(input);
-
     });
-
-  });
-+</script>
-
-<script>
-  document.addEventListener('DOMContentLoaded', function () {
-    const percentInput = document.querySelector('input[name="per"]');
-
-    if (percentInput) {
-      percentInput.addEventListener('blur', function () {
-        let value = percentInput.value.trim();
-
-        // 数字以外の文字を排除
-        value = value.replace(/[^\d.]/g, '');
-
-        // 小数第一位までに丸める（例：12.345 → 12.3）
-        let num = parseFloat(value);
-        if (!isNaN(num)) {
-          percentInput.value = num.toFixed(1); // 小数1桁に固定
-        } else {
-          percentInput.value = ''; // 数字じゃない場合は空に
-        }
-      });
-    }
   });
 </script>
 
