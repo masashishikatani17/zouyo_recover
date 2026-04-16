@@ -85,6 +85,14 @@
   .readonly-money {
     background-color:#f0f0f0;
   }
+  
+
+  .signed-money-input {
+    text-align: right;
+    ime-mode: disabled;
+    width: 100%;    
+  }
+
 </style>
 
 <style>
@@ -181,7 +189,31 @@
 @php
     $relationships = config('relationships');
     $defaultHeaderTitle = '贈与における相続対策のご提案';
-    $today = today();    
+    $today = today();
+    
+
+    $resolveOtherAssetValue = function (array $row = []) {
+        if (array_key_exists('other_asset', $row) && $row['other_asset'] !== null && $row['other_asset'] !== '') {
+            return (int) $row['other_asset'];
+        }
+
+        if (array_key_exists('property', $row) && $row['property'] !== null && $row['property'] !== '') {
+            return (int) $row['property'] - (int) ($row['cash'] ?? 0);
+        }
+
+        return '';
+    };
+
+    $resolveHeaderOtherAssetValue = function (array $header = []) {
+        if (array_key_exists('other_asset_110', $header) && $header['other_asset_110'] !== null && $header['other_asset_110'] !== '') {
+            return (int) $header['other_asset_110'];
+        }
+
+        return (isset($header['property_110'], $header['cash_110']))
+            ? (int) $header['property_110'] - (int) $header['cash_110']
+            : '';
+    };
+
 @endphp
 
   <div class="mt-5 ms-0 mb-2">
@@ -407,21 +439,18 @@
             </td>
   
             <td class="border px-1 py-0">
-              <input type="text" class="form-control suji8 comma decimal0 title-field-input"
+              <input type="text" class="form-control suji8 comma decimal0 title-field-input"              
                      name="cash[1]" style="ime-mode:disabled;" inputmode="numeric"
                      value="{{ old('cash.1', isset($prefillFamily[1]['cash']) ? number_format($prefillFamily[1]['cash']) : '') }}">千円
             </td>
             <td class="border px-1 py-0">
-              <input type="text" class="form-control suji8 comma decimal0 title-field-input"              
-                     name="other_asset[1]" style="ime-mode:disabled;" inputmode="numeric"
-                     value="{{ old('other_asset.1',
-                          isset($prefillFamily[1]['property'])
-                            ? number_format(max(0, (int)$prefillFamily[1]['property'] - (int)($prefillFamily[1]['cash'] ?? 0)))
-                            : ''
-                     ) }}">千円
+              @php $row1OtherAsset = $resolveOtherAssetValue($prefillFamily[1] ?? []); @endphp
+                <input type="text" class="form-control title-field-input js-signed-money signed-money-input"
+                    name="other_asset[1]" style="ime-mode:disabled;" inputmode="text"
+                     value="{{ old('other_asset.1', $row1OtherAsset === '' ? '' : number_format($row1OtherAsset)) }}">千円
             </td>
             <td class="border px-1 py-0">
-              <input type="text" class="form-control suji8 comma decimal0 readonly-money"
+                <input type="text" class="form-control suji8 comma decimal0 readonly-money title-field-calc"
                      name="property[1]" readonly tabindex="-1"
                      value="{{ old('property.1', isset($prefillFamily[1]['property']) ? number_format($prefillFamily[1]['property']) : '') }}">千円
             </td>
@@ -550,13 +579,10 @@
                        value="{{ old('cash.'.$i, isset($prefillFamily[$i]['cash']) ? number_format($prefillFamily[$i]['cash']) : '') }}">千円
               </td>
               <td class="border px-1 py-0">
-                <input type="text" class="form-control suji8 comma decimal0 title-field-input"
-                       name="other_asset[{{ $i }}]" style="ime-mode:disabled;" inputmode="numeric"
-                       value="{{ old('other_asset.'.$i,
-                            isset($prefillFamily[$i]['property'])
-                              ? number_format(max(0, (int)$prefillFamily[$i]['property'] - (int)($prefillFamily[$i]['cash'] ?? 0)))
-                              : ''
-                       ) }}">千円
+                @php $rowOtherAsset = $resolveOtherAssetValue($prefillFamily[$i] ?? []); @endphp
+                <input type="text" class="form-control title-field-input js-signed-money signed-money-input"
+                       name="other_asset[{{ $i }}]" style="ime-mode:disabled;" inputmode="text"
+                       value="{{ old('other_asset.'.$i, $rowOtherAsset === '' ? '' : number_format($rowOtherAsset)) }}">千円
               </td>
               <td class="border px-1 py-0 js-property-cell" data-row="{{ $i }}">                
                 <input type="text" class="form-control suji8 comma decimal0 readonly-money title-field-calc"
@@ -575,13 +601,10 @@
                      value="{{ old('cash.110', isset($prefillHeader['cash_110']) ? number_format($prefillHeader['cash_110']) : '') }}">千円
             </td>
             <td class="border px-1 py-1">
+              @php $sumOtherAsset = $resolveHeaderOtherAssetValue($prefillHeader ?? []); @endphp
               <input type="text" class="form-control suji8 comma decimal0 title-field-calc"
                      name="other_asset[110]" readonly tabindex="-1"
-                     value="{{ old('other_asset.110',
-                          (isset($prefillHeader['property_110'], $prefillHeader['cash_110']))
-                            ? number_format(max(0, (int)$prefillHeader['property_110'] - (int)$prefillHeader['cash_110']))
-                            : ''
-                     ) }}">千円
+                     value="{{ old('other_asset.110', $sumOtherAsset === '' ? '' : number_format($sumOtherAsset)) }}">千円
             </td>
             <td class="border px-1 py-1">
               <input type="text" class="form-control suji8 comma decimal0 title-field-calc"              
@@ -909,19 +932,107 @@ document.addEventListener('DOMContentLoaded', function () {
 
 <script>
   // 3桁区切りのカンマを付ける関数
+  function normalizeSignedRaw(value) {
+    let raw = String(value ?? '').trim();
+
+    // 先頭の各種マイナス記号を半角ハイフンに正規化
+    raw = raw.replace(/^[\-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]+/u, '-');
+
+    // カンマ除去
+    raw = raw.replace(/,/g, '');
+
+    const negative = raw.startsWith('-');
+
+    // 数字以外は除去。ただし先頭負号だけは保持
+    raw = raw.replace(/[^\d]/g, '');
+
+    if (raw === '') {
+      return negative ? '-' : '';
+    }
+
+    return `${negative ? '-' : ''}${raw}`;
+  }
+
   function formatNumber(input) {
-    let raw = input.value.replace(/,/g, '').replace(/[^\d]/g, '');
-    if (raw === '') return;
-    input.value = Number(raw).toLocaleString();
+    const normalized = normalizeSignedRaw(input.value);
+
+    if (normalized === '' || normalized === '-') {
+      input.value = normalized;
+      return;
+    }
+
+    const negative = normalized.startsWith('-');
+    const digits = normalized.replace('-', '');
+    input.value = `${negative ? '-' : ''}${Number(digits).toLocaleString()}`;
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    // ★ 金融資産(cash) / その他資産(other_asset) / 合計(property=readonly) を対象にカンマ付与
-    const priceInputs = document.querySelectorAll(
-      'input[name^="cash["], input[name^="other_asset["], input[name^="property["]'
+    // 金融資産と合計は従来どおり
+    const unsignedPriceInputs = document.querySelectorAll(
+      'input[name^="cash["], input[name^="property["]'
     );
 
-    priceInputs.forEach(function (input) {
+    unsignedPriceInputs.forEach(function (input) {
+    
+      input.addEventListener('keydown', function (e) {
+        const allowedKeys = [
+          'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
+          'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'
+        ];
+
+        if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) {
+          return;
+        }
+
+        if (e.key === '-') {
+          if (input.selectionStart !== 0 || String(input.value ?? '').includes('-')) {
+            e.preventDefault();
+          }
+          return;
+        }
+
+        if (!/^\d$/.test(e.key)) {
+          e.preventDefault();
+        }
+      });
+    
+
+      input.addEventListener('blur', function () {
+        formatNumber(input);
+      });
+    });
+
+    // その他資産は負数入力を許可
+    const signedPriceInputs = document.querySelectorAll('.js-signed-money');
+
+      input.addEventListener('keydown', function (e) {
+        const allowedKeys = [
+          'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
+          'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'
+        ];
+
+        if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) {
+          return;
+        }
+
+        // 半角/全角/Unicode の各種マイナスを許可（先頭1つだけ）
+        if (/^[-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]$/u.test(e.key)) {
+          const value = String(input.value ?? '');
+          if (input.selectionStart !== 0 || /^[-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]/u.test(value)) {
+            e.preventDefault();
+          }
+          return;
+        }
+
+        if (!/^\d$/.test(e.key)) {
+          e.preventDefault();
+        }
+      });
+
+    signedPriceInputs.forEach(function (input) {
+        input.value = normalizeSignedRaw(input.value);
+      });
+
       input.addEventListener('blur', function () {
         formatNumber(input);
       });
@@ -1029,11 +1140,21 @@ document.addEventListener('DOMContentLoaded', function () {
  
   
   function sanitizeNumber(str) {
-    return parseInt(String(str ?? '').replace(/,/g, '').replace(/[^\d]/g, ''), 10) || 0;
+
+    const normalized = normalizeSignedRaw(str);
+    if (normalized === '' || normalized === '-') return 0;
+
+    const negative = normalized.startsWith('-');
+    const digits = normalized.replace('-', '');
+    const value = parseInt(digits, 10) || 0;
+    return negative ? -value : value;
+
   }
+
   function formatWithComma(num) {
     return Number(num || 0).toLocaleString();
   }
+
 
   window.recalcRowTotal = function recalcRowTotal(i) {  
     const cashInput  = document.querySelector(`input[name="cash[${i}]"]`);
