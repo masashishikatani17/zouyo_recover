@@ -303,8 +303,13 @@ class A3ZouyoGenzeikokaPageService implements ZouyoPdfPageInterface
 
         for ($value = $axisMin; $value <= $axisMax; $value += $tickStep) {
             $yy = $this->valueToChartY($value, $axisMin, $axisMax, $plotY, $plotH);
- 
-            $pdf->SetDrawColor(210, 210, 210);
+
+            // プロットエリアの上線・下線は黒、それ以外の補助線はグレー
+            if ($value === $axisMin || $value === $axisMax) {
+                $pdf->SetDrawColor(0, 0, 0);
+            } else {
+                $pdf->SetDrawColor(210, 210, 210);
+            }
             $pdf->Line($plotX, $yy, $plotX + $plotW, $yy);
 
             $pdf->SetDrawColor(0, 0, 0);

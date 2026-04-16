@@ -367,8 +367,84 @@ class A3SouzokuninzaisansuiiPageService implements ZouyoPdfPageInterface
         string $text,
         string $align
     ): void {
-        $pdf->SetFont('mspgothic03', '', 9.0);
+        $fontSize = $this->resolveValueCellFontSize($pdf, $text, $w);
+        $pdf->SetFont('mspgothic03', '', $fontSize);
         $pdf->MultiCell($w, 4.5, $text, 0, $align, 0, 0, $x, $y);
+    }
+
+
+
+    private function resolveValueCellFontSize(TCPDF $pdf, string $text, float $cellWidth): float
+    {
+        $fontSizes = [9.0, 8.5, 8.0, 7.5, 7.0];
+
+        if ($text === '') {
+            return 9.0;
+        }
+
+        // 桁数ベースで初期フォントサイズを決める
+        // 例:
+        //   1,000,000   => 7ケタ
+        //   -1,000,000  => 8ケタ（マイナス記号も1ケタとして数える）
+        $displayDigits = $this->countValueCellDisplayDigits($text);
+
+        if ($displayDigits <= 7) {
+            $startIndex = 0; // 9.0
+        } elseif ($displayDigits === 8) {
+            $startIndex = 1; // 8.5
+        } elseif ($displayDigits === 9) {
+            $startIndex = 2; // 8.0
+        } elseif ($displayDigits === 10) {
+            $startIndex = 3; // 7.5
+        } else {
+            $startIndex = 4; // 7.0
+        }
+
+        // 念のため実幅でも最終確認する
+        $availableWidth = max(1.0, $cellWidth - 0.8);
+        $measureText = str_replace(["\r", "\n"], '', $text);
+
+        for ($i = $startIndex; $i < count($fontSizes); $i++) {
+            $fontSize = $fontSizes[$i];
+            $pdf->SetFont('mspgothic03', '', $fontSize);
+            $textWidth = (float)$pdf->GetStringWidth($measureText);
+
+            if ($textWidth <= $availableWidth) {
+                return $fontSize;
+            }
+        }
+
+        return 7.0;
+    }
+
+    private function countValueCellDisplayDigits(string $text): int
+    {
+        $normalized = str_replace(["\r", "\n", ' ', '　', ','], '', $text);
+
+        if ($normalized === '') {
+            return 0;
+        }
+
+        // 「－」単独表示は桁数判定対象にしない
+        if ($normalized === '－' || $normalized === '-') {
+            return 0;
+        }
+
+        $count = 0;
+        $chars = preg_split('//u', $normalized, -1, PREG_SPLIT_NO_EMPTY);
+
+        foreach ($chars as $char) {
+            if (preg_match('/[0-9]/u', $char)) {
+                $count++;
+                continue;
+            }
+
+            if ($char === '-' || $char === '－') {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     private function fmt(?int $value): string
