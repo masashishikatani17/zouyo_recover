@@ -71,23 +71,23 @@
             </label>
     
             <label>
-                <input type="checkbox" name="pages_a3[]" value="2" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(2, $pdfSelectedPagesA3, true))> 比較説明
+                <input type="checkbox" name="pages_a3[]" value="2" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(2, $pdfSelectedPagesA3, true))> 暦年課税と相続時精算課税の比較
             </label>
     
             <label>
-                <input type="checkbox" name="pages_a3[]" value="3" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(3, $pdfSelectedPagesA3, true))> 家族構成相続税額
+                <input type="checkbox" name="pages_a3[]" value="3" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(3, $pdfSelectedPagesA3, true))> 家族構成等、現時点での相続税額(贈与前)
             </label>
     
             <label>
-                <input type="checkbox" name="pages_a3[]" value="4" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(4, $pdfSelectedPagesA3, true))> 贈与プラン
+                <input type="checkbox" name="pages_a3[]" value="4" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(4, $pdfSelectedPagesA3, true))> 各人別贈与プラン
             </label>
      
             <label>
-                <input type="checkbox" name="pages_a3[]" value="5" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(5, $pdfSelectedPagesA3, true))> 各人別贈与額
+                <input type="checkbox" name="pages_a3[]" value="5" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(5, $pdfSelectedPagesA3, true))> 各人別贈与額および贈与税の計算過程
             </label>
      
             <label>
-                <input type="checkbox" name="pages_a3[]" value="7" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(7, $pdfSelectedPagesA3, true))> 贈与後の相続税
+                <input type="checkbox" name="pages_a3[]" value="7" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(7, $pdfSelectedPagesA3, true))> 贈与後の相続税の課税価格、相続税額の推移
             </label>
      
             <label>
@@ -95,11 +95,11 @@
             </label>
       
             <label>
-                <input type="checkbox" name="pages_a3[]" value="9" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(9, $pdfSelectedPagesA3, true))> 相続人別財産の推移
+                <input type="checkbox" name="pages_a3[]" value="9" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(9, $pdfSelectedPagesA3, true))> 対策前後の相続人別財産の比較
             </label>
       
             <label>
-                <input type="checkbox" name="pages_a3[]" value="10" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(10, $pdfSelectedPagesA3, true))> 各人別財産の推移
+                <input type="checkbox" name="pages_a3[]" value="10" class="page-checkbox" data-paper-size="A3" form="zouyo-pdf-form" @checked(in_array(10, $pdfSelectedPagesA3, true))> 対策前後の相続人別財産の比較一覧
             </label>
 
             <label>
