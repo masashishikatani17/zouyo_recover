@@ -2136,6 +2136,10 @@ document.addEventListener('DOMContentLoaded', function () {
   const cashTotal     = document.getElementById('id_cash_total');         // ★金融資産 合計（千円）
   const otherTotal    = document.getElementById('id_other_total');        // ★その他資産 合計（千円）
 
+  // ★ 手入力時でも左側合計は被相続人(家族構成等)の固定値を維持する
+  const fixedCashTotalKyen  = cashTotal  ? (cashTotal.value  || '') : '';
+  const fixedOtherTotalKyen = otherTotal ? (otherTotal.value || '') : '';
+  const fixedPropertyKyen   = totalInput ? (totalInput.value || '') : '';
 
   // ★ 追加：金融資産/その他資産（相続人別）入力欄
   const cashShareInputs  = document.querySelectorAll('input[name^="id_cash_share["]');
@@ -2350,12 +2354,15 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     }
 
-    // 左側：合計を更新
-    if (cashTotal)  cashTotal.value  = formatComma(sumCash);
-    if (otherTotal) otherTotal.value = formatComma(sumOther);
-    if (totalInput) totalInput.value = formatComma(sumCash + sumOther);
+    
+    // ★ 左側合計は手入力値では再計算せず、被相続人の固定値を維持する
+    if (cashTotal)  cashTotal.value  = fixedCashTotalKyen;
+    if (otherTotal) otherTotal.value = fixedOtherTotalKyen;
+    if (totalInput) totalInput.value = fixedPropertyKyen;
+ 
 
     // 課税価格合計（所有財産＋生前贈与加算）も再計算
+    // ※ base は property[1]（固定値）を使う    
     if (typeof updateTaxablePriceTotal === 'function') {
       updateTaxablePriceTotal();
     }
@@ -2947,10 +2954,17 @@ document.addEventListener('DOMContentLoaded', function () {
   function applyIsanPreviewPayload(preview) {
     if (!preview) return;
 
+    const pane = isanPreviewPane();
     const left = preview.left || {};
     const members = preview.members || {};
-    const previewMode = String(preview.mode || '').toLowerCase();    
-    
+    const previewMode = String(preview.mode || '').toLowerCase();
+    const currentInputMode =
+      pane.querySelector('input[name="input_mode"]:checked')?.value ||
+      previewMode ||
+    'auto';
+    const keepFixedLeftTotals = currentInputMode === 'manual';
+     
+
     if (typeof window.setBasicDeductionMasterKyen === 'function') {
       window.setBasicDeductionMasterKyen(
         left.basic_deduction_base_kyen
@@ -2963,11 +2977,18 @@ document.addEventListener('DOMContentLoaded', function () {
     }
    
     isanPreviewSetValue('#isan-customer-name', left.customer_name ?? '');
-    isanPreviewSetValue('#id_cash_total', left.cash_total ?? '');
-    isanPreviewSetValue('#id_other_total', left.other_total ?? '');
-    isanPreviewSetValue('#id_taxable_manu_total', left.property_total ?? '');
-    isanPreviewSetValue('#isan-total-lifetime-gift', left.lifetime_gift_total ?? '');
-    isanPreviewSetValue('input[data-role="taxable_total_overall"]', left.taxable_total_overall ?? '');
+
+    // ★ 手入力時は左側の金融資産/その他資産/所有財産(合計)を
+    //    preview 応答でも上書きしない
+    if (!keepFixedLeftTotals) {
+      isanPreviewSetValue('#id_cash_total', left.cash_total ?? '');
+      isanPreviewSetValue('#id_other_total', left.other_total ?? '');
+      isanPreviewSetValue('#id_taxable_manu_total', left.property_total ?? '');
+      isanPreviewSetValue('input[data-role="taxable_total_overall"]', left.taxable_total_overall ?? '');
+    } else if (typeof updateTaxablePriceTotal === 'function') {
+      updateTaxablePriceTotal();
+    }
+
     isanPreviewSetText('#basic-deduction-label', left.basic_deduction_label ?? '');
     isanPreviewSetValue('#basic_deduction_amount', left.basic_deduction_amount ?? '');
     isanPreviewSetValue('#isan-total-taxable-estate', left.taxable_estate ?? '');
