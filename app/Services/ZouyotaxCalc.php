@@ -686,7 +686,8 @@ class ZouyotaxCalc
         //   ※従来は「配列が空のときだけ」payloadへフォールバックしていたが、
         //     “相続人以外（例：No7）”の保存漏れ等で「特定年だけ0になる」ケースがある。
         //     その場合に gift_decr_* が欠損するため、年単位で不足分だけ payload で補完する。
-        $calAmountByYearK = $this->readSavedFutureCalAmountByYearK($dataId); // [1..20]=>千円
+        $calAmountByYearK = $this->readSavedFutureCalAmountByYearK($dataId, $payload); // [1..20]=>千円
+
         $calFallbackByYearK = $this->readPlanKyenArrayAllRecipients($payload, 'cal_amount'); // [1..20]=>千円
 
         // ★年単位フォールバック（DBが0の年だけ payload を採用）
@@ -722,7 +723,8 @@ class ZouyotaxCalc
 
 
         // 精算課税（set_amount）の年次合計（千円）
-        $setAmountByYearK = $this->readSavedFutureSetAmountByYearK($dataId); // [1..20]=>千円
+        $setAmountByYearK = $this->readSavedFutureSetAmountByYearK($dataId, $payload); // [1..20]=>千円
+
         $setFallbackByYearK = $this->readPlanKyenArrayAllRecipients($payload, 'set_amount'); // [1..20]=>千円
 
         // ★年単位フォールバック（DBが0の年だけ payload を採用）
@@ -2123,8 +2125,20 @@ class ZouyotaxCalc
             $projAfter[$tt] = $this->enrichGiftBasicDeductionSummary($row, $payload);
         }
 
-        // ★ 「これからの贈与」が一切無い場合は、対策後シナリオを対策前と完全一致させる
-        //   （相続税・贈与税累計・合計が before / projections.before と同じになるよう強制）
+        // ★ 「これからの贈与」が一切無い場合でも、
+        //   after / projections.after 自体は捨てずに後段へ流す。
+        //   ここで before を丸ごとコピーして早期 return すると、
+        //   persons.timeline を作る前に抜けてしまい、
+        //   「対策前後の相続人別財産の比較」「比較一覧」が全て0になる。
+        //
+        //   そのため、この分岐では
+        //   - 贈与税累計額だけ before と同期
+        //   - after / projAfter はそのまま保持
+        //   - 後続の allocateEstateBaseByFixedRatios()
+        //     / allocateTaxableEstateByFixedRatios()
+        //     / buildPersonBaselineTimelines()
+        //     を通す
+        // とする。
         if (!$hasFuturePlanEntries) {
             // ▼ 贈与税累計額（gift_tax_cum_yen）を1つだけ決めて、
             //    before / projections.before / after / projections.after ですべて同じ値を使う
@@ -2137,24 +2151,30 @@ class ZouyotaxCalc
             );
             // before(t=0) にセット
             $before['summary']['gift_tax_cum_yen'] = $giftCumYen;
+            $before['summary']['calendar_gift_tax_cum_yen'] = $giftCumYen;            
             // projections.before[t] 全行に同じ値をセット
             foreach ($projBefore as $tt => $row) {
                 if (!isset($projBefore[$tt]['summary']) || !is_array($projBefore[$tt]['summary'])) {
                     continue;
                 }
                 $projBefore[$tt]['summary']['gift_tax_cum_yen'] = $giftCumYen;
+                $projBefore[$tt]['summary']['calendar_gift_tax_cum_yen'] = $giftCumYen;                
             }
 
-            // after / projections.after は before / projections.before の完全コピー
-            $after      = $before;
-            $projAfter  = $projBefore;
+            // after / projections.after も贈与税累計額だけ同期する。
+            // ※ シナリオ本体は保持し、後段で persons.timeline まで生成させる
+            if (!isset($after['summary']) || !is_array($after['summary'])) {
+                $after['summary'] = [];
+            }
+            $after['summary']['gift_tax_cum_yen'] = $giftCumYen;
+            $after['summary']['calendar_gift_tax_cum_yen'] = $giftCumYen;
 
-            // 差額はすべて 0 に揃える
-            $delta = $this->buildDelta($before, $before);
-
-            $projDelta = [];
-            foreach ($projBefore as $t => $beforeRow) {
-                $projDelta[$t] = $this->buildDelta($beforeRow, $beforeRow);
+            foreach ($projAfter as $tt => $row) {
+                if (!isset($projAfter[$tt]['summary']) || !is_array($projAfter[$tt]['summary'])) {
+                    continue;
+                }
+                $projAfter[$tt]['summary']['gift_tax_cum_yen'] = $giftCumYen;
+                $projAfter[$tt]['summary']['calendar_gift_tax_cum_yen'] = $giftCumYen;
             }
 
             // 対策後の各年(t=0?20)の暦年課税の生前贈与加算額をログ出力
@@ -2166,16 +2186,6 @@ class ZouyotaxCalc
             }
             
 
-            return [
-                'before'      => $before,
-                'after'       => $after,
-                'delta'       => $delta,
-                'projections' => [
-                    'before' => $projBefore,
-                    'after'  => $projAfter,
-                    'delta'  => $projDelta,
-                ],
-            ];
         }
 
 
@@ -2503,7 +2513,7 @@ class ZouyotaxCalc
      * @param string $kind  'calendar' | 'settlement'
      * @return array<int,int> [1..20] => 千円
      */
-    private function readSavedFutureAmountByYearK(int $dataId, string $kind): array
+    private function readSavedFutureAmountByYearK(int $dataId, string $kind, array $payload = []): array
     {
         $sum = array_fill(1, 20, 0);
 
@@ -2579,8 +2589,23 @@ class ZouyotaxCalc
             // ここでは最低限、cal/set 専用カラムが存在するケースでは amount_thousand を使わないようにしている。
         }
          
+        $currentPointDate = $this->resolveCurrentPointDateForFutureFilter($payload, $dataId);
+        [$baseMonth, $baseDay] = $this->resolveFutureBaseGiftMonthDay($dataId);
 
-        $rows = $q->get(['recipient_no', 'row_no', $amountCol]);
+        // ★環境によって future_gift_plan_entries に gift_month / gift_day が無いので、
+        //   存在するカラムだけ SELECT する
+        $selectColumns = ['recipient_no', 'row_no', $amountCol];
+        if (Schema::hasColumn('future_gift_plan_entries', 'gift_year')) {
+            $selectColumns[] = 'gift_year';
+        }
+        if (Schema::hasColumn('future_gift_plan_entries', 'gift_month')) {
+            $selectColumns[] = 'gift_month';
+        }
+        if (Schema::hasColumn('future_gift_plan_entries', 'gift_day')) {
+            $selectColumns[] = 'gift_day';
+        }
+
+        $rows = $q->get($selectColumns);
 
         // ============================================================
         // ★重要：row_no 正規化は「offset（data_idごとの保存方式）」を唯一の正とする
@@ -2595,6 +2620,13 @@ class ZouyotaxCalc
 
 
         foreach ($rows as $r) {
+            
+            // ★現時点以前の贈与は future 集計から除外
+            if (!$this->isStrictFutureGiftEntry($r, $currentPointDate, $baseMonth, $baseDay)) {
+                continue;
+            }
+
+
             $rowNo = (int)($r->row_no ?? 0);
 
             // row_no 正規化（offsetで固定）
@@ -2650,20 +2682,19 @@ class ZouyotaxCalc
      * 暦年贈与（将来分）：年次合計（千円）
      * ※受贈者2..10の全員を合算（相続取得者フィルタ禁止）
      */
-    private function readSavedFutureCalAmountByYearK(int $dataId): array
-    {
-        return $this->readSavedFutureAmountByYearK($dataId, 'calendar');
-    }
-
+    private function readSavedFutureCalAmountByYearK(int $dataId, array $payload = []): array
+     {
+        return $this->readSavedFutureAmountByYearK($dataId, 'calendar', $payload);
+     }
+     
     /**
      * 精算課税贈与（将来分）：年次合計（千円）
      * ※受贈者2..10の全員を合算（相続取得者フィルタ禁止）
      */
-    private function readSavedFutureSetAmountByYearK(int $dataId): array
-    {
-        return $this->readSavedFutureAmountByYearK($dataId, 'settlement');
-    }
-
+    private function readSavedFutureSetAmountByYearK(int $dataId, array $payload = []): array
+     {
+        return $this->readSavedFutureAmountByYearK($dataId, 'settlement', $payload);
+     }
 
     // ===== 基本ユーティリティ =====
 
@@ -4515,46 +4546,46 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
         // ★ この年の「実際に贈与した額」を推定
         //   実際の贈与額は、加算額ではなく、実際に贈与された金額（贈与後に計算された額）を使用する
 
-// ▼ 暦年贈与の年次合計（千円）は「保存済みのDB（FutureGiftPlanEntry）」から取得（必須要件）
-$calAmountByYearK = $this->readSavedFutureCalAmountByYearK($dataId); // [1..20]=>千円
-if (empty($calAmountByYearK)) {
-    // フォールバック：どうしてもDBに見つからない場合のみ、POST値を使用
-    $calAmountByYearK = $this->readPlanKyenArrayAllRecipients($payload, 'cal_amount');
-}
-
-// 年次単位の暦年課税（cal_amount）の金額取得（千円）
-$sumCalAmountK = function(int $t) use ($calAmountByYearK): int {
-    // 特定の年の贈与額を取得する（累計ではなくその年のみ）
-    return isset($calAmountByYearK[$t]) ? (int)$calAmountByYearK[$t] : 0;
-};
-
-// 精算課税（set_amount）の年次合計（千円）
-$setAmountByYearK = $this->readSavedFutureSetAmountByYearK($dataId);
-if (empty($setAmountByYearK)) {
-    $setAmountByYearK = $this->readPlanKyenArrayAllRecipients($payload, 'set_amount');
-}
-
-// 年次単位の精算課税（set_amount）の金額取得（千円）
-$sumSetAmountK = function(int $t) use ($setAmountByYearK): int {
-    // 特定の年の贈与額を取得する（累計ではなくその年のみ）
-    return isset($setAmountByYearK[$t]) ? (int)$setAmountByYearK[$t] : 0;
-};
-
-// 実際に贈与された金額の累計（t年次までの累計額）
-$actualGiftAmountForAlloc = 0; // 初期化
-
-// t年次までの累計額を計算
-for ($i = 0; $i <= $t; $i++) {
-    $actualGiftAmountForAlloc += $sumCalAmountK($i) * 1000 + $sumSetAmountK($i) * 1000; // 累計で加算
-}
-
-// ★ 分割対象は「減額後（贈与後）の遺産」をベースにする
-//   after_virtual の場合：computeScenarioForGivenDate() で算出した estateAfter（贈与後遺産）を優先
-//   それ以外：従来通り「課税価格 ? 実際に贈与した額」で復元
-//if ($context === 'after_virtual' && $estateAfterYenForAlloc !== null) {
-//    // 実際に贈与した額を反映させた状態で復元
-//    $estateBaseForAlloc = max(0, (int)$estateAfterYenForAlloc);
-//} else {
+        // ▼ 暦年贈与の年次合計（千円）は「保存済みのDB（FutureGiftPlanEntry）」から取得（必須要件）
+        $calAmountByYearK = $this->readSavedFutureCalAmountByYearK($dataId, $payload); // [1..20]=>千円
+        if (empty($calAmountByYearK)) {
+            // フォールバック：どうしてもDBに見つからない場合のみ、POST値を使用
+            $calAmountByYearK = $this->readPlanKyenArrayAllRecipients($payload, 'cal_amount');
+        }
+        
+        // 年次単位の暦年課税（cal_amount）の金額取得（千円）
+        $sumCalAmountK = function(int $t) use ($calAmountByYearK): int {
+            // 特定の年の贈与額を取得する（累計ではなくその年のみ）
+            return isset($calAmountByYearK[$t]) ? (int)$calAmountByYearK[$t] : 0;
+        };
+        
+        // 精算課税（set_amount）の年次合計（千円）
+        $setAmountByYearK = $this->readSavedFutureSetAmountByYearK($dataId, $payload);
+        if (empty($setAmountByYearK)) {
+            $setAmountByYearK = $this->readPlanKyenArrayAllRecipients($payload, 'set_amount');
+        }
+        
+        // 年次単位の精算課税（set_amount）の金額取得（千円）
+        $sumSetAmountK = function(int $t) use ($setAmountByYearK): int {
+            // 特定の年の贈与額を取得する（累計ではなくその年のみ）
+            return isset($setAmountByYearK[$t]) ? (int)$setAmountByYearK[$t] : 0;
+        };
+        
+        // 実際に贈与された金額の累計（t年次までの累計額）
+        $actualGiftAmountForAlloc = 0; // 初期化
+        
+        // t年次までの累計額を計算
+        for ($i = 0; $i <= $t; $i++) {
+            $actualGiftAmountForAlloc += $sumCalAmountK($i) * 1000 + $sumSetAmountK($i) * 1000; // 累計で加算
+        }
+        
+        // ★ 分割対象は「減額後（贈与後）の遺産」をベースにする
+        //   after_virtual の場合：computeScenarioForGivenDate() で算出した estateAfter（贈与後遺産）を優先
+        //   それ以外：従来通り「課税価格 ? 実際に贈与した額」で復元
+        //if ($context === 'after_virtual' && $estateAfterYenForAlloc !== null) {
+        //    // 実際に贈与した額を反映させた状態で復元
+        //    $estateBaseForAlloc = max(0, (int)$estateAfterYenForAlloc);
+        //} else {
 
         // ▼ 被相続人(行1)を含む、初期表示用の所有財産をDBから取得（単位：千円）
         $prefillFamily = [];
@@ -5495,16 +5526,19 @@ for ($i = 0; $i <= $t; $i++) {
             
             
 
-            // ------------------------------------------------------------
-            // ★重要:
-            //   「これからの贈与」に入れるのは、現時点（提案書作成日）より後の贈与だけ。
-            //   既に過去/現時点以前の gift_date を持つ行は futurePlan に混ぜない。
-            //   これをしないと、過去の精算課税データが「1年後の贈与」として
-            //   対策後シナリオや persons.timeline に出てしまう。
-            // ------------------------------------------------------------
-            $giftYear  = (int)($r->gift_year ?? 0);
-            $giftMonth = (int)($r->gift_month ?? 0);
-            $giftDay   = (int)($r->gift_day ?? 0);
+            // ★現時点以前の贈与は「これからの贈与」に混ぜない
+            if (!$this->isStrictFutureGiftEntry($r, $currentPointDate, $baseMonth, $baseDay)) {
+                continue;
+            }
+
+            $giftDate = $this->resolveFutureGiftEntryDate($r, $baseMonth, $baseDay);
+            if (!$giftDate) {
+                continue;
+            }
+            $giftYear  = (int)$giftDate->format('Y');
+            $giftMonth = (int)$giftDate->format('m');
+            $giftDay   = (int)$giftDate->format('d');
+
 
             // month/day が未保存なら、第1回目贈与年月日の月日で補完
             if ($giftYear > 0 && ($giftMonth <= 0 || $giftDay <= 0) && $baseMonth > 0 && $baseDay > 0) {
@@ -7594,16 +7628,45 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
 
         if ($latestIds->isEmpty()) return [];
 
-        $res = DB::table('future_gift_plan_entries')
+        $currentPointDate = $this->resolveCurrentPointDateForFutureFilter([], $dataId);
+        [$baseMonth, $baseDay] = $this->resolveFutureBaseGiftMonthDay($dataId);
+
+        $selectColumns = ['id', 'row_no', 'calendar_add_cum_thousand', 'calendar_amount_thousand'];
+         
+        $canDateFilter = false;
+        if (Schema::hasColumn('future_gift_plan_entries', 'gift_year')) {
+            $selectColumns[] = 'gift_year';
+            $canDateFilter = true;
+        }
+        if (Schema::hasColumn('future_gift_plan_entries', 'gift_month')) {
+            $selectColumns[] = 'gift_month';
+        }
+        if (Schema::hasColumn('future_gift_plan_entries', 'gift_day')) {
+            $selectColumns[] = 'gift_day';
+        }
+
+        $rows = FutureGiftPlanEntry::query()
             ->whereIn('id', $latestIds)
-            ->select('row_no', DB::raw('SUM(COALESCE(calendar_add_cum_thousand,0)) as k'))
-            ->groupBy('row_no')
-            ->get();
+            ->get($selectColumns);
 
         $out = array_fill(1, 20, 0);
-        foreach ($res as $r) {
-            $t = (int)$r->row_no + $this->futurePlanRowNoOffset;
-            if ($t >= 1 && $t <= 20) $out[$t] = (int)$r->k;
+
+
+        foreach ($rows as $r) {
+            if ($canDateFilter && !$this->isStrictFutureGiftEntry($r, $currentPointDate, $baseMonth, $baseDay)) {
+                continue;
+            }
+
+
+            // ★金額が0に戻された行は、古い累計値が残っていても表示に使わない
+            if ((int)($r->calendar_amount_thousand ?? 0) <= 0) {
+                continue;
+            }
+
+            $t = $this->normalizeFuturePlanT((int)($r->row_no ?? 0));
+            if ($t >= 1 && $t <= 20) {
+                $out[$t] += (int)($r->calendar_add_cum_thousand ?? 0);
+            }
         }
         return $out;
     }
@@ -7624,16 +7687,44 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
 
         if ($latestIds->isEmpty()) return [];
 
-        $res = DB::table('future_gift_plan_entries')
+        $currentPointDate = $this->resolveCurrentPointDateForFutureFilter([], $dataId);
+        [$baseMonth, $baseDay] = $this->resolveFutureBaseGiftMonthDay($dataId);
+
+        $selectColumns = ['id', 'row_no', 'settlement_add_cum_thousand', 'settlement_amount_thousand'];
+        $canDateFilter = false;
+        if (Schema::hasColumn('future_gift_plan_entries', 'gift_year')) {
+            $selectColumns[] = 'gift_year';
+            $canDateFilter = true;
+        }
+        if (Schema::hasColumn('future_gift_plan_entries', 'gift_month')) {
+            $selectColumns[] = 'gift_month';
+        }
+        if (Schema::hasColumn('future_gift_plan_entries', 'gift_day')) {
+            $selectColumns[] = 'gift_day';
+        }
+
+        $rows = FutureGiftPlanEntry::query()
             ->whereIn('id', $latestIds)
-            ->select('row_no', DB::raw('SUM(COALESCE(settlement_add_cum_thousand,0)) as k'))
-            ->groupBy('row_no')
-            ->get();
+            ->get($selectColumns);
 
         $out = array_fill(1, 20, 0);
-        foreach ($res as $r) {
-            $t = (int)$r->row_no + $this->futurePlanRowNoOffset;
-            if ($t >= 1 && $t <= 20) $out[$t] = (int)$r->k;
+        foreach ($rows as $r) {
+            if ($canDateFilter && !$this->isStrictFutureGiftEntry($r, $currentPointDate, $baseMonth, $baseDay)) {
+                continue;
+            }
+
+
+
+            // ★金額が0に戻された行は、古い累計値が残っていても表示に使わない
+            if ((int)($r->settlement_amount_thousand ?? 0) <= 0) {
+                continue;
+            }
+ 
+ 
+            $t = $this->normalizeFuturePlanT((int)($r->row_no ?? 0));
+            if ($t >= 1 && $t <= 20) {
+                $out[$t] += (int)($r->settlement_add_cum_thousand ?? 0);
+            }
         }
         
         
@@ -8721,6 +8812,62 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
     }
 
 
+
+    /**
+     * future_gift_plan_entries を future 扱いするための「現時点」を解決する。
+     * - payload があるときは画面の基準日（resolveDeathDateFromPayload）
+     * - payload が無いときは ProposalHeader の提案書日付
+     * - 最後は today()
+     */
+    private function resolveCurrentPointDateForFutureFilter(array $payload, int $dataId): \DateTimeImmutable
+    {
+        if (!empty($payload)) {
+            return $this->resolveDeathDateFromPayload($payload, $dataId);
+        }
+
+        $proposalDate = $this->resolveDeathDateFromProposalHeader($dataId);
+        if ($proposalDate instanceof \DateTimeImmutable) {
+            return $proposalDate;
+        }
+
+        return new \DateTimeImmutable('today');
+    }
+
+    /**
+     * future_gift_plan_entries 1行から、future 判定に使う贈与日を作る。
+     * gift_month/day が欠けていれば future_base_month/day で補完する。
+     */
+    private function resolveFutureGiftEntryDate(FutureGiftPlanEntry $row, int $baseMonth, int $baseDay): ?\DateTimeImmutable
+    {
+        $giftYear  = (int)($row->gift_year ?? 0);
+        $giftMonth = (int)($row->gift_month ?? 0);
+        $giftDay   = (int)($row->gift_day ?? 0);
+
+        if ($giftYear > 0 && ($giftMonth <= 0 || $giftDay <= 0) && $baseMonth > 0 && $baseDay > 0) {
+            $giftMonth = $baseMonth;
+            $giftDay   = $baseDay;
+        }
+
+        return $this->safeDateYmd($giftYear, $giftMonth, $giftDay);
+    }
+
+    /**
+     * 提案書作成日時点より後の贈与だけを「これからの贈与」として扱う。
+     */
+    private function isStrictFutureGiftEntry(
+        FutureGiftPlanEntry $row,
+        \DateTimeImmutable $currentPointDate,
+        int $baseMonth,
+        int $baseDay
+    ): bool {
+        $giftDate = $this->resolveFutureGiftEntryDate($row, $baseMonth, $baseDay);
+        if (!$giftDate) {
+            return false;
+        }
+
+        return $giftDate > $currentPointDate;
+    }
+
     /**
      * 相続時精算課税の贈与額を「受贈者×贈与年」で集計する（単位: 千円）
      *
@@ -9064,12 +9211,15 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
 		//将来贈与データの取得
         $rows = FutureGiftPlanEntry::where('data_id', $dataId)
                    // ★ 0始まり（0..19）データの混在も拾う
-                   ->whereBetween('row_no', [1,20])
+                   ->whereBetween('row_no', [0,20])
                    ->whereBetween('recipient_no', [2,10])
                    ->orderBy('row_no')
                    ->get();
 
-
+ 
+        $currentPointDate = $this->resolveCurrentPointDateForFutureFilter([], $dataId);
+        [$baseMonth, $baseDay] = $this->resolveFutureBaseGiftMonthDay($dataId);
+ 
         // ★必ず初期化（ifに入らないケースでも未定義にならない）
         $rekinen_Future_gift_data = [];
 
@@ -9085,11 +9235,18 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
 
         foreach ($rows as $r) {
 
+            // ★現時点以前の贈与は future DB から除外
+            if (!$this->isStrictFutureGiftEntry($r, $currentPointDate, $baseMonth, $baseDay)) {
+                continue;
+            }
+ 
             $no = (int)$r->recipient_no;
             if ($no < 2 || $no > 10) continue;            
             
-            
-		    $t = (int)($r->row_no ?? 0);
+            $t = $this->normalizeFuturePlanT((int)($r->row_no ?? 0));
+            if ($t < 1 || $t > 20) {
+                continue;
+            }
 
             // 暦年贈与の金額は calendar_amount_thousand を正とする
             $amtK = (int)($r->calendar_amount_thousand ?? 0);
@@ -9103,51 +9260,11 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                 
 
                 // 贈与日（DB保存値）を唯一の正として扱う：不正日付はスキップ
-                $fYear  = (int)($r->gift_year ?? 0);
-                $fMonth = (int)($r->gift_month ?? 0);
-                $fDay   = (int)($r->gift_day ?? 0);
-
-                // ★ gift_month/day が 0 の行は、ヘッダ（future_base_month/day）で補完して処理を継続する
-                if ($fYear > 0 && ($fMonth <= 0 || $fDay <= 0) && $baseMonth > 0 && $baseDay > 0) {
-                    
-                    /*
-                    Log::warning('FutureGiftDB: gift_month/day missing -> fallback to future_base_month/day', [
-                        'dataId' => $dataId,
-                        'no'     => $no,
-                        'row_no' => $t,
-                        'gift_year'  => $fYear,
-                        'gift_month' => $fMonth,
-                        'gift_day'   => $fDay,
-                        'base_month' => $baseMonth,
-                        'base_day'   => $baseDay,
-                        'amtK'   => $amtK,
-                    ]);
-                    */
-                    
-                    $fMonth = $baseMonth;
-                    $fDay   = $baseDay;
-                }
-
-                if ($fYear <= 0 || $fMonth <= 0 || $fDay <= 0 || !checkdate($fMonth, $fDay, $fYear)) {
-                    
-                    /*
-                    Log::warning('FutureGiftDB: invalid gift Y/M/D (after fallback)', [
-                        'dataId' => $dataId,
-                        'no'     => $no,
-                        'row_no' => $t,
-                        'gift_year'  => $fYear,
-                        'gift_month' => $fMonth,
-                        'gift_day'   => $fDay,
-                        'base_month' => $baseMonth,
-                        'base_day'   => $baseDay,
-                        'amtK'   => $amtK,
-                    ]);
-                    */
-                    
+                
+                $giftDate = $this->resolveFutureGiftEntryDate($r, $baseMonth, $baseDay);
+                if (!$giftDate) {                
                     continue;
                 }
-
-                $rekinen_Futuregift_date = new \DateTimeImmutable(sprintf('%04d-%02d-%02d', $fYear, $fMonth, $fDay));
 
                 // 暦年贈与税（千円）
                    
