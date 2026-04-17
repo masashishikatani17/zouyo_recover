@@ -482,6 +482,65 @@ class ZouyotaxCalc
     }
 
 
+
+    /**
+     * 受贈者(row_no=2..10)の tokurei_zouyo フラグを「今回のPOST値」から取得する。
+     * 値が送られていない場合は null を返し、呼び出し元でDBへフォールバックする。
+     */
+    private function isTokureiRecipientFromPayload(array $payload, int $recipientNo): ?bool
+    {
+        if ($recipientNo < 2 || $recipientNo > 10) {
+            return null;
+        }
+
+        $candidates = [
+            Arr::get($payload, "tokurei_zouyo.$recipientNo"),
+            Arr::get($payload, "special_gift_type.$recipientNo"),
+            Arr::get($payload, "gift_rate_type.$recipientNo"),
+            Arr::get($payload, "tokurei_kubun.$recipientNo"),
+        ];
+
+        foreach ($candidates as $raw) {
+            if ($raw === null || $raw === '') {
+                continue;
+            }
+
+            if (is_bool($raw)) {
+                return $raw;
+            }
+
+            if (is_numeric($raw)) {
+                return ((int)$raw) === 1;
+            }
+
+            $s = Str::lower(trim((string)$raw));
+
+            if (in_array($s, ['1', 'true', 'on', 'yes', 'tokurei', 'special', '特例'], true)) {
+                return true;
+            }
+
+            if (in_array($s, ['0', 'false', 'off', 'no', 'ippan', 'general', '一般'], true)) {
+                return false;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * 特例区分は「今回のPOST値」を最優先し、未送信時のみDBへフォールバックする。
+     */
+    private function resolveTokureiRecipientFlag(array $payload, int $dataId, int $recipientNo): bool
+    {
+        $fromPayload = $this->isTokureiRecipientFromPayload($payload, $recipientNo);
+        if ($fromPayload !== null) {
+            return $fromPayload;
+        }
+
+        return $this->isTokureiRecipient($dataId, $recipientNo);
+    }
+
+
     /**
      * future_gift_plan_entries.row_no の基準補正
      * - DBに 0..19 で保存されているデータがある場合：+1して 1..20 に正規化する
@@ -1347,6 +1406,8 @@ class ZouyotaxCalc
             // フォールバック：全員0なら従来の比率をそのまま使用
             $anbunRatiosForYear = $anbunRatios;
         }
+        $anbunRatiosForYear = $this->normalizeRoundedAnbunRatios4($anbunRatiosForYear);
+
 
         // ★ 重要：以降（算出税額・2割加算・控除計算）で使う「あん分割合」は
         //         buildAnbunRatios() ではなく、必ず「課税価格合計割合」で確定させる。
@@ -1362,23 +1423,7 @@ class ZouyotaxCalc
 
         // ★ t=0(before) の「算出税額」は、確定した課税価格割合で配分する
         //    - floor配分 + 端数は「最初の対象者」へ寄せ → 合計が必ず相続税総額に一致
-        $sanzutsuTaxByIdx = array_fill(2, 9, 0);
-        $allocated = 0;
-        $firstIdx = null;
-        $lastIdx  = null; // ★保険
-        for ($i = 2; $i <= 10; $i++) {
-            $r = (float)($anbunRatios[$i] ?? 0.0);
-            if ($r <= 0) continue;
-            if ($firstIdx === null) { $firstIdx = $i; }
-            $lastIdx = $i;
-            $tax = (int)floor($totalLegalShareTax * $r);
-            $sanzutsuTaxByIdx[$i] = $tax;
-            $allocated += $tax;
-        }
-        $targetIdx = $firstIdx ?? $lastIdx;
-        if ($targetIdx !== null) {
-            $sanzutsuTaxByIdx[$targetIdx] += ($totalLegalShareTax - $allocated);
-        }
+        $sanzutsuTaxByIdx = $this->allocateTaxByRoundedAnbunRatios($totalLegalShareTax, $anbunRatios);
 
 
 
@@ -1458,37 +1503,23 @@ class ZouyotaxCalc
         // ※ 既存の $anbunRatios が「法定相続分」等で作られていると画面がズレるため、
         //    breakdown を作る直前にここで上書きして一貫性を担保する。
         // ============================================================
-        $anbunRatios = [];
+        $anbunRatios = array_fill(2, 9, 0.0);
         $totalPriceForRatioYen = 0;
-        $firstNonZeroIdx = null;
-        $lastNonZeroIdx  = null; // ★保険
         for ($i = 2; $i <= 10; $i++) {
             $p = (int)($perIdx[$i]['price_for_ratio'] ?? 0);
             if ($p < 0) $p = 0;
             $totalPriceForRatioYen += $p;
-            if ($p > 0) {
-                if ($firstNonZeroIdx === null) { $firstNonZeroIdx = $i; }
-                $lastNonZeroIdx = $i;
-            }
         }
         if ($totalPriceForRatioYen > 0) {
             $sum = 0.0;
             for ($i = 2; $i <= 10; $i++) {
                 $p = (int)($perIdx[$i]['price_for_ratio'] ?? 0);
                 if ($p < 0) $p = 0;
-                $r = ($p > 0) ? ((float)$p / (float)$totalPriceForRatioYen) : 0.0;
-                $anbunRatios[$i] = $r;
-                $sum += $r;
+                $anbunRatios[$i] = ($p > 0) ? ((float)$p / (float)$totalPriceForRatioYen) : 0.0;
             }
-            // 浮動小数誤差の補正：最初の非ゼロに寄せる
-            $targetIdx = $firstNonZeroIdx ?? $lastNonZeroIdx;
-            if ($targetIdx !== null) {
-                $diff = 1.0 - $sum;
-                $anbunRatios[$targetIdx] = max(0.0, (float)($anbunRatios[$targetIdx] ?? 0.0) + (float)$diff);
-            }
-        } else {
-            for ($i = 2; $i <= 10; $i++) $anbunRatios[$i] = 0.0;
         }
+        $anbunRatios = $this->normalizeRoundedAnbunRatios4($anbunRatios);
+        $anbun['ratios'] = $anbunRatios;        
 
 
         $breakdown = [];
@@ -3702,6 +3733,99 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
         ];
     }
 
+
+    /**
+     * あん分割合は「表示」と同じく小数第4位で扱う。
+     *
+     * - 各比率を小数第4位で四捨五入
+     * - 丸め誤差で合計が 1.0000 からズレた場合は、
+     *   最大割合の人へ差額を寄せて合計を 1.0000 に揃える
+     *
+     * @param  array<int, float|int|string>  $ratios
+     * @return array<int, float>
+     */
+    private function normalizeRoundedAnbunRatios4(array $ratios): array
+    {
+        $out = [];
+        for ($i = 2; $i <= 10; $i++) {
+            $out[$i] = 0.0;
+    }
+
+    $sum = 0.0;
+        $adjustIdx = null;
+        $maxRatio = 0.0;
+
+        for ($i = 2; $i <= 10; $i++) {
+            $raw = max(0.0, (float)($ratios[$i] ?? 0.0));
+            $rounded = round($raw, 4, PHP_ROUND_HALF_UP);
+            if ($rounded <= 0.0) {
+            continue;
+            }
+
+            $out[$i] = $rounded;
+            $sum += $rounded;
+
+            if ($rounded > $maxRatio) {
+                $maxRatio = $rounded;
+                $adjustIdx = $i;
+        }
+        }
+
+        if ($adjustIdx !== null) {
+            $diff = round(1.0 - $sum, 4, PHP_ROUND_HALF_UP);
+            $out[$adjustIdx] = round($out[$adjustIdx] + $diff, 4, PHP_ROUND_HALF_UP);
+        }
+
+        return $out;
+    }
+
+    /**
+     * 小数第4位に丸めたあん分割合で算出税額を配分する。
+     *
+     * - 各人の税額は floor() で切り捨て
+     * - 切り捨てで余った差額は最初の対象者へ寄せる
+     *
+     * @param  int  $totalTax
+     * @param  array<int, float|int|string>  $ratios
+     * @return array<int, int>
+     */
+    private function allocateTaxByRoundedAnbunRatios(int $totalTax, array $ratios): array
+    {
+        $out = array_fill(2, 9, 0);
+        if ($totalTax <= 0) {
+            return $out;
+        }
+
+        $ratios = $this->normalizeRoundedAnbunRatios4($ratios);
+
+        $allocated = 0;
+        $firstIdx = null;
+        $lastIdx = null;
+
+        for ($i = 2; $i <= 10; $i++) {
+            $r = (float)($ratios[$i] ?? 0.0);
+            if ($r <= 0.0) {
+                continue;
+            }
+            if ($firstIdx === null) {
+                $firstIdx = $i;
+            }
+            $lastIdx = $i;
+
+            $tax = (int)floor($totalTax * $r);
+            $out[$i] = $tax;
+            $allocated += $tax;
+        }
+
+        $targetIdx = $firstIdx ?? $lastIdx;
+        if ($targetIdx !== null) {
+            $out[$targetIdx] += ($totalTax - $allocated);
+        }
+
+        return $out;
+    }
+
+
     /**
      * あん分割合の構築
      * ★あん分割合／算出税額は「課税価格（所有財産＋生前贈与加算）の合計割合」で計算する
@@ -3758,6 +3882,9 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
                 $ratios[$idx] = ($baseKyenByIdx[$idx] ?? 0) / $totalKyen;
             }
         }
+
+        $ratios = $this->normalizeRoundedAnbunRatios4($ratios);
+
 
         return [
             'mode'       => $useManual ? 'manual' : 'auto',
@@ -4730,6 +4857,9 @@ for ($i = 0; $i <= $t; $i++) {
             $anbunRatiosForYear = $anbunRatios;
         }
 
+        $anbunRatiosForYear = $this->normalizeRoundedAnbunRatios4($anbunRatiosForYear);
+        $sanzutsuByIdx = $this->allocateTaxByRoundedAnbunRatios($totalLegalShareTax, $anbunRatiosForYear);
+ 
 
         // ★ auto モード用：民法上の法定相続割合（civil）を正規化
         //    ※ anubnRatios（課税価格比）は使わない
@@ -4939,9 +5069,8 @@ for ($i = 0; $i <= $t; $i++) {
             }
 
 
-
-            // 算出税額：相続税総額 × その年のあん分割合
-            $sanzutsu = (int)round($totalLegalShareTax * $anbunRatio);
+            // 算出税額：小数第4位に丸めたあん分割合で配分
+            $sanzutsu = (int)($sanzutsuByIdx[$idx] ?? 0);
 
             // 2割加算（チェックボックスで判定：法定相続人限定ではない）
             $twoTenths = $this->checkboxOn($payload, 'twenty_percent_add', $idx);
@@ -5380,18 +5509,7 @@ for ($i = 0; $i <= $t; $i++) {
                 
                 // ★暦年贈与税（千円）はDB列が未保存(0)でも落とさない。
                 //   まず既存列から拾い、それでも0なら税率表から再計算して埋める（全受贈者分を合算するため）
-                $calTaxK = $this->resolveFutureCalendarTaxK($r);
-                if ($calTaxK <= 0) {
-                    $amtK = (int)($r->calendar_amount_thousand ?? 0);
-                    if ($amtK > 0) {
-
-                        // JSと同様：afterK = max(amountK - 基礎控除額, 0)
-                        $afterK = max($amtK - $giftBasicDeductionK, 0);
-
-                        $isTok  = $this->isTokureiRecipient($dataId, (int)$r->recipient_no);
-                        $calTaxK = $this->calcCalendarGiftTaxK($afterK, $isTok);
-                    }
-                }
+                $calTaxK = $this->resolveFutureCalendarTaxK($r, $payload);
 
                 $out['calendar'][] = [
                     // ★重要：贈与日（DB保存値）を唯一の正として渡す
@@ -6333,6 +6451,12 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
             // 万一すべて 0 なら、従来どおり t=0 の比率をそのまま使用
             $anbunRatiosForYear = $anbunRatios;
         }
+        $anbunRatiosForYear = $this->normalizeRoundedAnbunRatios4($anbunRatiosForYear);
+
+        $sanzutsuByIdx = $this->allocateTaxByRoundedAnbunRatios($totalLegalShareTax, $anbunRatiosForYear);
+
+
+
 
         // 控除（暦年・精算）
         //  - t=0: 「これからの贈与」を無視するため、過去分のみ（従来どおり）
@@ -6392,7 +6516,7 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
 
             // ★ この年の課税価格に基づくあん分割合
             $ratio  = (float)($anbunRatiosForYear[$idx] ?? 0.0);
-            $sanzutsu = (int)round($totalLegalShareTax * $ratio);
+            $sanzutsu = (int)($sanzutsuByIdx[$idx] ?? 0);
 
             // ★ 対策後シナリオでも 2割加算は「チェックボックス」で一元管理」
             $twoTenths = $this->checkboxOn($payload, 'twenty_percent_add', $idx);
@@ -7821,99 +7945,22 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
         //    - [手入力]       : 従来どおり taxable_share_yen / taxableEstate を使用
         //    - [法定相続割合] : 既存の anbun_ratio をそのまま使用
         // ------------------------------------------------------------        
-        $sanzutsuByIdx = [];
-        for ($i = 2; $i <= 10; $i++) {
-            $sanzutsuByIdx[$i] = 0;
-        }
-
-        if ($totalLegalShareTax > 0) {
-            if ($isManualMode) {
-                // [手入力] は既存仕様を維持
-                if ($taxableEstate > 0) {
-                    $allocated = 0;
-                    $firstIdx  = null;
-                    $lastIdx   = null;
-
-                    foreach ($heirs as $row) {
-                        $idx = (int)($row['row_index'] ?? 0);
-                        if ($idx < 2 || $idx > 10) {
-                            continue;
-                        }
-
-                        $taxableShareYen = max(0, (int)($row['taxable_share_yen'] ?? 0));
-                        if ($taxableShareYen <= 0) {
-                            continue;
-                        }
-
-                        if ($firstIdx === null) {
-                            $firstIdx = $idx;
-                        }
-                        $lastIdx = $idx;
-
-                        $shareTax = (int)floor($totalLegalShareTax * ($taxableShareYen / $taxableEstate));
-                        $sanzutsuByIdx[$idx] = $shareTax;
-                        $allocated += $shareTax;
-                    }
-
-                    $targetIdx = $firstIdx ?? $lastIdx;
-                    if ($targetIdx !== null) {
-                        $sanzutsuByIdx[$targetIdx] += ($totalLegalShareTax - $allocated);
-                    }
+        $recomputedAnbunRawByIdx = array_fill(2, 9, 0.0);
+        if ($taxableEstate > 0) {
+            foreach ($heirs as $row) {
+                $idx = (int)($row['row_index'] ?? 0);
+                if ($idx < 2 || $idx > 10) {
+                    continue;
                 }
-            } else {
-                // [法定相続割合] でも、allocateTaxableEstateByFixedRatios() 後に確定した
-                // taxable_share_yen / taxableEstate を唯一の正として再配分する
-                if ($taxableEstate > 0) {
-                    $allocated = 0;
-                    $firstIdx  = null;
-                    $lastIdx   = null;
-
-                    foreach ($heirs as $row) {
-                        $idx = (int)($row['row_index'] ?? 0);
-                        if ($idx < 2 || $idx > 10) {
-                            continue;
-                        }
-
-                        $taxableShareYen = max(0, (int)($row['taxable_share_yen'] ?? 0));
-                        if ($taxableShareYen <= 0) {
-                            continue;
-                        }
-
-                        if ($firstIdx === null) {
-                            $firstIdx = $idx;
-                        }
-                        $lastIdx = $idx;
-
-                        $shareTax = (int)floor($totalLegalShareTax * ($taxableShareYen / $taxableEstate));
-                        $sanzutsuByIdx[$idx] = $shareTax;
-                        $allocated += $shareTax;
-
-                        if ($projectionYear === 1) {
-                            $existingAnbunRatio = (float)($row['anbun_ratio'] ?? 0.0);
-                            $recalculatedRatio  = (float)$taxableShareYen / (float)$taxableEstate;
-
-                            /*
-                            Log::debug('2026.03.23 20002 [ZouyotaxCalc][recompute_sanzutsu_check][after][t=1]', [
-                                'data_id' => $dataId,
-                                'idx' => $idx,
-                                'taxable_share_yen' => $taxableShareYen,
-                                'existing_anbun_ratio' => $existingAnbunRatio,
-                                'recalculated_ratio' => $recalculatedRatio,
-                                'sanzutsu_by_existing_ratio' => (int)round($totalLegalShareTax * $existingAnbunRatio),
-                                'sanzutsu_by_recalculated_ratio_round' => (int)round($totalLegalShareTax * $recalculatedRatio),
-                                'sanzutsu_by_recalculated_ratio_floor' => (int)floor($totalLegalShareTax * $recalculatedRatio),
-                            ]);
-                            */
-                        }
-                    }
-
-                    $targetIdx = $firstIdx ?? $lastIdx;
-                    if ($targetIdx !== null) {
-                        $sanzutsuByIdx[$targetIdx] += ($totalLegalShareTax - $allocated);
-                    }
+                $taxableShareYen = max(0, (int)($row['taxable_share_yen'] ?? 0));
+                if ($taxableShareYen <= 0) {
+                    continue;
                 }
+                $recomputedAnbunRawByIdx[$idx] = (float)$taxableShareYen / (float)$taxableEstate;
             }
         }
+        $recomputedAnbunRatioByIdx = $this->normalizeRoundedAnbunRatios4($recomputedAnbunRawByIdx);
+        $sanzutsuByIdx = $this->allocateTaxByRoundedAnbunRatios($totalLegalShareTax, $recomputedAnbunRatioByIdx);
 
         
         // ------------------------------------------------------------
@@ -7940,12 +7987,8 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
             }
 
             $taxableShareYen = max(0, (int)($row['taxable_share_yen'] ?? 0));
-            $anbunRatio = $isManualMode
-                ? (($taxableEstate > 0) ? ((float)$taxableShareYen / (float)$taxableEstate) : 0.0)
-                : (float)($row['anbun_ratio'] ?? 0.0);
 
-
-
+            $anbunRatio = (float)($recomputedAnbunRatioByIdx[$idx] ?? 0.0);
 
             $sanzutsu = (int)($sanzutsuByIdx[$idx] ?? 0);
 
@@ -8653,57 +8696,26 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
      * - 列名揺れを吸収（special / general / normal / legacy）
      * - それでも 0 の場合は attributes を走査して自動検出（1人分だけ税額が欠ける対策）
      */
-    private function resolveFutureCalendarTaxK(FutureGiftPlanEntry $r): int
+    private function resolveFutureCalendarTaxK(FutureGiftPlanEntry $r, array $payload = []): int
     {
-        $val = 0;
-        $candidates = [
-            'calendar_special_tax_thousand',
-            'calendar_tax_thousand',
-            'calendar_general_tax_thousand',
-            'calendar_normal_tax_thousand',
-            'calendar_calc_tax_thousand',
-            'tax_thousand',
-        ];
-        foreach ($candidates as $col) {
-            $v = (int)($r->{$col} ?? 0);
-            if ($v > $val) { $val = $v; }
+
+        $amountK = (int)($r->calendar_amount_thousand ?? 0);
+        $recipientNo = (int)($r->recipient_no ?? 0);
+        $dataId = (int)($r->data_id ?? ($payload['data_id'] ?? 0));
+
+        // ★重要
+        // 相続税側の贈与税額控除は、保存済みの calendar_tax_thousand 等を信用せず、
+        // 現在の「一般/特例区分」から毎回再計算する。
+        // これにより、家族構成画面で一般→特例へ変更した直後でも、
+        // PDFの相続税側控除額が古い一般税率のまま残る不整合を防ぐ。
+        if ($amountK > 0 && $recipientNo >= 2 && $recipientNo <= 10) {
+            $afterK = max($amountK - $this->resolveGiftBasicDeductionK($payload), 0);
+            $isTokurei = $this->resolveTokureiRecipientFlag($payload, $dataId, $recipientNo);
+            return $this->calcCalendarGiftTaxK($afterK, $isTokurei);
         }
 
-        // まだ 0 の場合：attributes から "calendar*tax*thousand" を自動検出
-        if ($val <= 0) {
-            $attrs = method_exists($r, 'getAttributes') ? (array)$r->getAttributes() : [];
-            foreach ($attrs as $k => $v) {
-                if (!is_numeric($v)) continue;
-                $kk = (string)$k;
-                // 例: calendar_*tax*_thousand / calendar_*_tax*_thousand 等
-                if (preg_match('/^calendar_.*tax.*_thousand$/i', $kk)) {
-                    $vv = (int)$v;
-                    if ($vv > $val) { $val = $vv; }
-                }
-            }
-        }
+        return 0;
 
-        // デバッグ：金額があるのに税額が 0 の行だけ吐く（本番ノイズ抑制）
-        if ($val <= 0 && (int)($r->calendar_amount_thousand ?? 0) > 0 && (bool)config('app.debug')) {
-            
-            /*
-            Log::debug('800001 [ZouyotaxCalc][future_plan][calendar_tax_missing]', [
-                'id'            => (int)($r->id ?? 0),
-                'data_id'        => (int)($r->data_id ?? 0),
-                'recipient_no'   => (int)($r->recipient_no ?? 0),
-                'row_no'         => (int)($r->row_no ?? 0),
-                'amount_thousand'=> (int)($r->calendar_amount_thousand ?? 0),
-                // よく使う候補列も併記（原因特定用）
-                'calendar_special_tax_thousand' => (int)($r->calendar_special_tax_thousand ?? 0),
-                'calendar_tax_thousand'         => (int)($r->calendar_tax_thousand ?? 0),
-                'tax_thousand'                  => (int)($r->tax_thousand ?? 0),
-                'attr_keys'                     => array_keys((array)$r->getAttributes()),
-            ]);
-            */
-            
-        }
-
-        return max(0, $val);
     }
 
     /**
@@ -8932,7 +8944,8 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
     
     private function FutureGiftDB(
         int $dataId,
-        array $heirIdxList 
+        array $heirIdxList,
+        array $payload = []
     ): array {
     
     //2026.01.26
@@ -9030,7 +9043,7 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                    
                 $calTaxK = 0; // ★未定義防止
                 $afterK  = max($amtK - 1100, 0);
-                $isTok   = $this->isTokureiRecipient($dataId, (int)$r->recipient_no);
+                $isTok   = $this->resolveTokureiRecipientFlag($payload, $dataId, (int)$r->recipient_no);
                 $calTaxK = $this->calcCalendarGiftTaxK($afterK, $isTok);
     
 
