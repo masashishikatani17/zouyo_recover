@@ -593,7 +593,7 @@
           </td>
 
           <td class="border px-1 py-0">
-            <input type="text" class="form-control suji7 comma decimal0" name="cal_basic[{{ $i }}]" style=" ime-mode: disabled; background-color: #f0f0f0;" readonly tabindex="-1" inputmode="numeric" value="{{ number_format($basicK * -1) }}">
+            <input type="text" class="form-control suji7 comma decimal0" name="cal_basic[{{ $i }}]" style=" ime-mode: disabled; background-color: #f0f0f0;" readonly tabindex="-1" inputmode="numeric" value="{{ number_format($basicK) }}">
           </td>
 
           <td class="border px-1 py-0">
@@ -1231,7 +1231,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
 
               const deathYear = giftYear || getFutureRowYear(i);
               if (!deathYear) {
-                setK('cal_basic', i, amountK_self > 0 ? -basicKForRow : '');
+                setK('cal_basic', i, amountK_self > 0 ? basicKForRow : '');
                 setK('cal_after_basic', i, afterK);
                 setK('cal_tax', i, taxK);
                 setK('cal_cum', i, '');
@@ -1291,7 +1291,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
               }
 
 
-              setK('cal_basic', i, amountK_self > 0 ? -basicKForRow : '');              
+              setK('cal_basic', i, amountK_self > 0 ? basicKForRow : '');              
               setK('cal_after_basic', i, afterK);
               setK('cal_tax', i, taxK);
 
@@ -1351,7 +1351,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
           const basicKForRow = getGiftBasicDeductionKByYear(giftYear || getFutureBaseYear());
           const amountK = toInt(el.value, 0);
 
-          setK('set_basic110', i, amountK > 0 ? -basicKForRow : '');
+          setK('set_basic110', i, amountK > 0 ? basicKForRow : '');
 
           const afterBasic = Math.max(amountK - basicKForRow, 0);          
           const useThis = Math.min(remain25m, afterBasic);
@@ -2602,12 +2602,12 @@ function applyFuturePayload(p) {
     };
 
     mapObjFormatted(p.plan.cal_amount, 'cal_amount');
-    mapObjFormattedMinus(p.plan.cal_basic, 'cal_basic');  // 1100 → -1,100
+    mapObjFormatted(p.plan.cal_basic, 'cal_basic');       // 1100 → 1,100    
     mapObjFormatted(p.plan.cal_after_basic, 'cal_after_basic');
     mapObjFormatted(p.plan.cal_tax, 'cal_tax');
     mapObjFormatted(p.plan.cal_cum, 'cal_cum');
     mapObjFormatted(p.plan.set_amount, 'set_amount');
-    mapObjFormattedMinus(p.plan.set_basic110, 'set_basic110');  // 1100 → -1,100
+    mapObjFormatted(p.plan.set_basic110, 'set_basic110');       // 1100 → 1,100    
     mapObjFormatted(p.plan.set_after_basic, 'set_after_basic');
     mapObjFormatted(p.plan.set_after_25m, 'set_after_25m');
     mapObjFormatted(p.plan.set_tax20, 'set_tax20');
@@ -2832,7 +2832,7 @@ function applyFuturePayload(p) {
       const kojoK = calcGiftTaxKyen(afterK, isTokurei); // ←★JS関数で贈与税額を算出！
     
       setK('cal_amount', 0, totalK);
-      setK('cal_basic', 0, -basicK);
+      setK('cal_basic', 0, basicK);
       setK('cal_after_basic', 0, afterK);
       setK('cal_tax', 0, kojoK);  // ←今度は正しく表示される！
       try { recalcPastOnlyCum0 && recalcPastOnlyCum0(); } catch (_) {}
@@ -3469,7 +3469,7 @@ function recalcPastSettlementRow0() {
 
     // 0行目へ反映（ご要望どおり「過年度の贈与の合計」を set_*[0] に集約表示）
     setK('set_amount',       0, sumK);
-    setK('set_basic110',     0, basic110K ? -basic110K : 0);
+    setK('set_basic110',     0, basic110K ? basic110K : 0);
     setK('set_after_basic',  0, afterBasicK);
     setK('set_after_25m',    0, after25mK);
     setK('set_tax20',        0, tax20K);
