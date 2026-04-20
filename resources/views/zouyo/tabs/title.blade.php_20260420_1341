@@ -47,10 +47,60 @@
      padding: 0 4px;
    }
 
+
+  /* 入力可 / 参照 / 自動計算 の見た目を明確化 */
+  .title-field-input {
+    background: #fff8db !important;
+    border: 2px solid #d4a72c !important;
+    color: #111827 !important;
+  }
+
+  .title-field-input:focus {
+    background: #ffffff !important;
+    border-color: #2563eb !important;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+    outline: none;
+  }
+
+  .title-field-ref {
+    background: #edf6ff !important;
+    border: 1px solid #9ec5fe !important;
+    color: #1f3b5b !important;
+  }
+
+  .title-field-calc {
+    background: #eef2f6 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #4b5563 !important;
+  }
+
+  .title-field-ref:focus,
+  .title-field-calc:focus {
+    box-shadow: none !important;
+    outline: none;
+  }
+
+
   /* ★合計（自動計算）表示用 */
   .readonly-money {
     background-color:#f0f0f0;
   }
+  
+
+  .signed-money-input {
+    display: inline-block !important;
+    width: calc(100% - 2.8em) !important;
+    min-width: 0;
+    text-align: right;
+    ime-mode: disabled;
+    vertical-align: middle;
+  }
+
+  .signed-money-cell {
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
 </style>
 
 <style>
@@ -98,12 +148,86 @@
     .row-disabled-checkbox {
       opacity: 0.6;
       pointer-events: none;
-    }    
+  }
+
+  /* 氏名空欄で入力不可になった欄は input/select 自体もグレー表示 */
+  .title-field-disabled {
+    background: #f0f0f0 !important;
+    border: 1px solid #cfcfcf !important;
+    color: #666 !important;
+  }
+
+  .title-field-disabled:focus {
+    box-shadow: none !important;
+    outline: none !important;
+  }
+
+  /* checkbox セル専用：入力可 / 入力不可 を見分けやすくする */
+  .title-check-cell-input {
+    background: #fff8db !important;
+    border: 2px solid #d4a72c !important;
+  }
+
+  .title-check-cell-disabled {
+    background: #f0f0f0 !important;
+    border: 1px solid #cfcfcf !important;
+  }
+
+  .title-check-cell-input .form-check-input,
+  .title-check-cell-disabled .form-check-input {
+    margin-top: 0;
+    vertical-align: middle;
+  }
+
+  .title-check-cell-input .form-check-input {
+    cursor: pointer;
+  }
+
+  .title-check-cell-disabled .form-check-input {
+    cursor: not-allowed;
+  }
+
+  .title-check-cell-input.row-disabled-cell,
+  .title-check-cell-disabled.row-disabled-cell {
+    background: #f0f0f0 !important;    
+  }    
     
 </style>
 
 @php
     $relationships = config('relationships');
+    $defaultHeaderTitle = '贈与における相続対策のご提案';
+    $today = today();
+    
+    $resolveOtherAssetValue = function (array $row = []) {
+        if (array_key_exists('property', $row) && $row['property'] !== null && $row['property'] !== '') {
+            return (int) $row['property'] - (int) ($row['cash'] ?? 0);
+        }
+
+        if (array_key_exists('other_asset', $row) && $row['other_asset'] !== null && $row['other_asset'] !== '') {
+            return (int) $row['other_asset'];
+        }
+
+        return '';
+    };
+
+    $resolveHeaderOtherAssetValue = function (array $header = []) {
+
+        if (
+            isset($header['property_110'], $header['cash_110']) &&
+            $header['property_110'] !== null && $header['property_110'] !== ''
+        ) {
+            return (int) $header['property_110'] - (int) $header['cash_110'];
+        }
+
+        if (array_key_exists('other_asset_110', $header) && $header['other_asset_110'] !== null && $header['other_asset_110'] !== '') {
+            return (int) $header['other_asset_110'];
+        }
+
+        return '';
+
+    };
+
 @endphp
 
   <div class="mt-5 ms-0 mb-2">
@@ -114,7 +238,7 @@
       <tr>
         <th style="width: 120px;">お客様名</td>
         <td class="text-start">
-             <input type="text" class="form-control suji11"
+             <input type="text" class="form-control suji11 title-field-input"             
                     name="header_customer_name" style="ime-mode:active; text-align:left;"
                     value="{{ old('header_customer_name', data_get($prefillHeader ?? [], 'customer_name', '')) }}"
                     placeholder="" >
@@ -123,30 +247,30 @@
       <tr class="border-b">
         <th>提案書の表題</th>
         <td class="text-start">
-            <input type="text" class="form-control kana20"
+            <input type="text" class="form-control kana20 title-field-input"            
                    name="header_title" style="ime-mode:active;"
-                   value="{{ old('header_title', $prefillHeader['title'] ?? '') }}"
+                   value="{{ old('header_title', data_get($prefillHeader ?? [], 'title', $defaultHeaderTitle)) }}"
                    placeholder="" inputmode="text">
          </td>
       </tr>
       <tr class="border-b align-middle">
-        <th>日 付</th>
+        <th>提案書の日付</th>
         <td class="text-start">
           <div class="flex items-center gap-1">
 
-            <input type="text" class="form-control suji4"
+            <input type="text" class="form-control suji4 title-field-input"            
                    name="header_year" style="ime-mode:disabled;" inputmode="numeric"
-                   value="{{ old('header_year', $prefillHeader['year'] ?? '') }}">
+                   value="{{ old('header_year', data_get($prefillHeader ?? [], 'year', $today->year)) }}">
                    年
 
-            <input type="text" class="form-control suji2"
+            <input type="text" class="form-control suji2 title-field-input"            
                    name="header_month" style="ime-mode:disabled;" inputmode="numeric"
-                   value="{{ old('header_month', $prefillHeader['month'] ?? '') }}">
+                   value="{{ old('header_month', data_get($prefillHeader ?? [], 'month', $today->month)) }}">
                    月
 
-            <input type="text" class="form-control suji2"
+            <input type="text" class="form-control suji2 title-field-input"            
                    name="header_day" style="ime-mode:disabled;" inputmode="numeric"
-                   value="{{ old('header_day', $prefillHeader['day'] ?? '') }}">
+                   value="{{ old('header_day', data_get($prefillHeader ?? [], 'day', $today->day)) }}">
                    日
           </div>
         </td>
@@ -155,7 +279,7 @@
         <th>提案者名</th>
         <td class="text-start">
 
-            <input type="text" class="form-control kana30"
+            <input type="text" class="form-control kana30 title-field-input"            
                    name="header_proposer_name" style=" ime-mode:active;"
                    value="{{ old('header_proposer_name', $prefillHeader['proposer_name'] ?? '') }}"
                    placeholder="" inputmode="text">
@@ -179,17 +303,18 @@
   
         <thead>
           <tr class="bg-blue text-center">
-            <th>番号</th>
-            <th>氏 名</th>
+            <th style="height:40px; vertical-align:middle;">番号</th>
+            <th style="height:40px; vertical-align:middle;">氏 名</th>
           </tr>
         </thead>
-  
+
+
         <tbody>
           {{-- 1行目（被相続人） --}}
           <tr style="height:25px;">
             <td class="text-end">1</td>
             <td>
-              <input type="text" class="form-control kana8"
+                <input type="text" class="form-control kana8 title-field-input"              
                      name="name[1]" style="ime-mode:active;"
                      value="{{ old('name.1', $prefillFamily[1]['name'] ?? '') }}"
                      placeholder="">
@@ -201,7 +326,7 @@
             <tr style="height:25px;">
               <td class="border px-1 py-1 text-end">{{ $i }}</td>
               <td class="border px-1 py-1">
-                <input type="text" class="form-control kana8"
+                <input type="text" class="form-control kana8 title-field-input"
                        name="name[{{ $i }}]" style="ime-mode:active;"
                        value="{{ old('name.'.$i, $prefillFamily[$i]['name'] ?? '') }}"
                        placeholder="">
@@ -244,27 +369,32 @@
   
         <thead>
           <tr class="bg-blue text-center">
-            <th>性別</th>
-            <th>続 柄</th>
-            <th>養子縁組</th>
-            <th>相続人区分</th>
-            <th colspan="3">民法上の<br>法定相続割合</th>
-            <th colspan="3">税法上の<br>法定相続割合</th>
-            <th>2割加算</th>
-            <th>特例贈与</th>
-            <th colspan="3">生年月日</th>
-            <th>年 齢</th>
+            <th rowspan="2">性別</th>
+            <th rowspan="2">続 柄</th>
+            <th rowspan="2">養子縁組</th>
+            <th rowspan="2">相続人の区分</th>
+            <th colspan="6">法定相続割合</th>
+            <th rowspan="2">2割加算</th>
+            <th rowspan="2">特例贈与</th>
+            <th colspan="3" rowspan="2">生年月日</th>
+            <th rowspan="2">年 齢</th>
+            <th colspan="3">所　有　財　産</th>
+          </tr>
+          <tr class="bg-blue text-center">
+            <th colspan="3">民法上</th>
+            <th colspan="3">税法上</th>
             <th>金融資産</th>
             <th>その他資産</th>
-            <th>合 計</th>
+            <th>合　計</th>
           </tr>
         </thead>
-  
+
+
         <tbody>
           {{-- 1行目（被相続人）※「番号・氏名」は左へ移動したのでここには置かない --}}
           <tr>
             <td>
-              <select class="form-control kana2" name="gender[1]">                
+              <select class="form-control kana2 title-field-input" name="gender[1]">                
                 @php $g = old('gender.1', $prefillFamily[1]['gender'] ?? ''); @endphp
                 <option value="" @selected($g==='')></option>                
                 <option value="男" @selected($g==='男')>男</option>
@@ -273,24 +403,25 @@
             </td>
   
             <td>
-              @php $rel = old('relationship.1', $prefillFamily[1]['relationship_code'] ?? ''); @endphp
-              <select name="relationship[1]" class="form-control kana4">
-                <option value="" @selected((string)$rel==='')></option>              
-                @foreach($relationships as $key => $label)
-                  <option value="{{ $key }}" @selected((string)$rel===(string)$key)>{{ $label }}</option>
-                @endforeach
+              @php
+                $selfRelationshipKey = array_search('本人', $relationships, true);
+                if ($selfRelationshipKey === false) {
+                    $selfRelationshipKey = array_key_exists('本人', $relationships) ? '本人' : '';
+                }
+                $selfRelationshipLabel = $relationships[$selfRelationshipKey] ?? '本人';
+              @endphp
+              <input type="hidden" name="relationship[1]" value="{{ $selfRelationshipKey }}">
+              <select class="form-control kana4 title-field-ref" disabled tabindex="-1">
+                <option value="{{ $selfRelationshipKey }}" selected>{{ $selfRelationshipLabel }}</option>
               </select>
             </td>
   
             <td class="text-center">－</td>
   
             <td>
-              @php $sz = old('souzokunin.1', $prefillFamily[1]['souzokunin'] ?? null); @endphp
-              <select class="form-control kana7" name="souzokunin[1]">
-                <option value="" @selected($sz===null || $sz==='')></option>              
-                <option value="被相続人"      @selected($sz==='被相続人')>被相続人</option>
-                <option value="法定相続人"    @selected($sz==='法定相続人')>法定相続人</option>
-                <option value="法定相続人以外" @selected($sz==='法定相続人以外')>法定相続人以外</option>
+              <input type="hidden" name="souzokunin[1]" value="被相続人">
+              <select class="form-control kana7 title-field-ref" disabled tabindex="-1">
+                <option value="被相続人" selected>被相続人</option>
               </select>
             </td>
   
@@ -300,43 +431,40 @@
             <td class="text-center">－</td>
   
             <td class="border px-1 py-0">
-              <input type="text" class="form-control suji4"
+              <input type="text" class="form-control suji4 title-field-input"
                      name="birth_year[1]" style="ime-mode:disabled;" inputmode="numeric"
                      value="{{ old('birth_year.1', $prefillFamily[1]['birth_year'] ?? '') }}">年
             </td>
             <td class="border px-1 py-0">
-              <input type="text" class="form-control suji2"
+              <input type="text" class="form-control suji2 title-field-input"              
                      name="birth_month[1]" style="ime-mode:disabled;" inputmode="numeric"
                      value="{{ old('birth_month.1', $prefillFamily[1]['birth_month'] ?? '') }}">月
             </td>
             <td class="border px-1 py-0">
-              <input type="text" class="form-control suji2"
+              <input type="text" class="form-control suji2 title-field-input"              
                      name="birth_day[1]" style="ime-mode:disabled;" inputmode="numeric"
                      value="{{ old('birth_day.1', $prefillFamily[1]['birth_day'] ?? '') }}">日
             </td>
   
             <td class="border px-1 py-0">
-              <input type="text" class="form-control suji3"
+              <input type="text" class="form-control suji3 title-field-calc"              
                      name="age[1]" style="background-color:#f0f0f0;" readonly tabindex="-1"
                      value="{{ old('age.1', $prefillFamily[1]['age'] ?? '') }}">歳
             </td>
   
             <td class="border px-1 py-0">
-              <input type="text" class="form-control suji8 comma decimal0"
+              <input type="text" class="form-control suji8 comma decimal0 title-field-input"              
                      name="cash[1]" style="ime-mode:disabled;" inputmode="numeric"
                      value="{{ old('cash.1', isset($prefillFamily[1]['cash']) ? number_format($prefillFamily[1]['cash']) : '') }}">千円
             </td>
-            <td class="border px-1 py-0">
-              <input type="text" class="form-control suji8 comma decimal0"
-                     name="other_asset[1]" style="ime-mode:disabled;" inputmode="numeric"
-                     value="{{ old('other_asset.1',
-                          isset($prefillFamily[1]['property'])
-                            ? number_format(max(0, (int)$prefillFamily[1]['property'] - (int)($prefillFamily[1]['cash'] ?? 0)))
-                            : ''
-                     ) }}">千円
+            <td class="border px-1 py-0 signed-money-cell">              
+              @php $row1OtherAsset = $resolveOtherAssetValue($prefillFamily[1] ?? []); @endphp
+                <input type="text" class="form-control title-field-input js-signed-money signed-money-input"
+                    name="other_asset[1]" style="ime-mode:disabled;" inputmode="text"
+                     value="{{ old('other_asset.1', $row1OtherAsset === '' ? '' : number_format($row1OtherAsset)) }}">千円
             </td>
             <td class="border px-1 py-0">
-              <input type="text" class="form-control suji8 comma decimal0 readonly-money"
+                <input type="text" class="form-control suji8 comma decimal0 readonly-money title-field-calc"
                      name="property[1]" readonly tabindex="-1"
                      value="{{ old('property.1', isset($prefillFamily[1]['property']) ? number_format($prefillFamily[1]['property']) : '') }}">千円
             </td>
@@ -346,7 +474,7 @@
           @for ($i = 2; $i <= 10; $i++)
             <tr>
               <td class="border px-1 py-0">
-                <select class="form-control kana2 text-center" name="gender[{{ $i }}]">
+                <select class="form-control kana2 text-center title-field-input" name="gender[{{ $i }}]">
                   @php $g = old('gender.'.$i, $prefillFamily[$i]['gender'] ?? ''); @endphp
                   <option value="" @selected($g==='')></option>                  
                   <option value="男" @selected($g==='男')>男</option>
@@ -356,7 +484,7 @@
   
               <td class="border px-1 py-0">
                 @php $rel = old('relationship.'.$i, $prefillFamily[$i]['relationship_code'] ?? ''); @endphp
-                <select name="relationship[{{ $i }}]" class="form-control kana4">
+                <select name="relationship[{{ $i }}]" class="form-control kana4 title-field-input">
                   <option value="" @selected((string)$rel==='')></option>                
                   @foreach($relationships as $key => $label)
                     <option value="{{ $key }}" @selected((string)$rel===(string)$key)>{{ $label }}</option>
@@ -365,14 +493,14 @@
               </td>
   
               <td class="border px-1 py-1">
-                <input type="text" class="form-control kana4"
+                <input type="text" class="form-control kana4 title-field-input"                
                        name="yousi[{{ $i }}]" style="ime-mode: active;"
                        value="{{ old('yousi.'.$i, $prefillFamily[$i]['yousi'] ?? '') }}">
               </td>
   
               <td class="border px-1 py-1">
                 @php $sz = old('souzokunin.'.$i, $prefillFamily[$i]['souzokunin'] ?? null); @endphp
-                <select class="form-control kana7" name="souzokunin[{{ $i }}]">
+                <select class="form-control kana7 title-field-input" name="souzokunin[{{ $i }}]">
                   <option value="" @selected($sz===null || $sz==='')></option>
                   <option value="被相続人"      @selected($sz==='被相続人')>被相続人</option>
                   <option value="法定相続人"    @selected($sz==='法定相続人')>法定相続人</option>
@@ -382,26 +510,26 @@
   
               {{-- 民法上 --}}
               <td class="border px-1 py-1">
-                <input type="text" class="form-control suji2"
+                <input type="text" class="form-control suji2 title-field-input"                
                        name="civil_share_bunsi[{{ $i }}]" style="ime-mode: disabled;" inputmode="numeric"
                        value="{{ old('civil_share_bunsi.'.$i, $prefillFamily[$i]['civil_share_bunsi'] ?? '') }}">
               </td>
               <td class="slash-cell border px-1 py-1 text-center" style="width: 5px;">/</td>
               <td class="border px-1 py-1">
-                <input type="text" class="form-control suji2"
+                <input type="text" class="form-control suji2 title-field-input"
                        name="civil_share_bunbo[{{ $i }}]" style="ime-mode: disabled;" inputmode="numeric"
                        value="{{ old('civil_share_bunbo.'.$i, $prefillFamily[$i]['civil_share_bunbo'] ?? '') }}">
               </td>
   
               {{-- 税法上 --}}
               <td class="border px-1 py-1">
-                <input type="text" class="form-control suji2"
+                <input type="text" class="form-control suji2 title-field-input"                
                        name="bunsi[{{ $i }}]" style="ime-mode: disabled;" inputmode="numeric"
                        value="{{ old('bunsi.'.$i, $prefillFamily[$i]['bunsi'] ?? '') }}">
               </td>
               <td class="slash-cell border px-1 py-1 text-center" style="width: 5px;">/</td>
               <td class="border px-1 py-1">
-                <input type="text" class="form-control suji2"
+                <input type="text" class="form-control suji2 title-field-input"                
                        name="bunbo[{{ $i }}]" style="ime-mode: disabled;" inputmode="numeric"
                        value="{{ old('bunbo.'.$i, $prefillFamily[$i]['bunbo'] ?? '') }}">
               </td>
@@ -436,17 +564,17 @@
   
               {{-- 生年月日 --}}
               <td class="border px-1 py-0">
-                <input type="text" class="form-control suji4"
+                <input type="text" class="form-control suji4 title-field-input"
                        name="birth_year[{{ $i }}]" style="ime-mode:disabled;" inputmode="numeric"
                        value="{{ old('birth_year.'.$i, $prefillFamily[$i]['birth_year'] ?? '') }}">年
               </td>
               <td class="border px-1 py-0">
-                <input type="text" class="form-control suji2"
+                <input type="text" class="form-control suji2 title-field-input"                
                        name="birth_month[{{ $i }}]" style="ime-mode:disabled;" inputmode="numeric"
                        value="{{ old('birth_month.'.$i, $prefillFamily[$i]['birth_month'] ?? '') }}">月
               </td>
               <td class="border px-1 py-0">
-                <input type="text" class="form-control suji2"
+                <input type="text" class="form-control suji2 title-field-input"
                        name="birth_day[{{ $i }}]" style="ime-mode:disabled;" inputmode="numeric"
                        value="{{ old('birth_day.'.$i, $prefillFamily[$i]['birth_day'] ?? '') }}">日
               </td>
@@ -460,21 +588,18 @@
   
               {{-- 金融資産/その他/合計 --}}
               <td class="border px-1 py-0">
-                <input type="text" class="form-control suji8 comma decimal0"
+              <input type="text" class="form-control suji8 comma decimal0 title-field-input"                
                        name="cash[{{ $i }}]" style="ime-mode:disabled;" inputmode="numeric"
                        value="{{ old('cash.'.$i, isset($prefillFamily[$i]['cash']) ? number_format($prefillFamily[$i]['cash']) : '') }}">千円
               </td>
-              <td class="border px-1 py-0">
-                <input type="text" class="form-control suji8 comma decimal0"
-                       name="other_asset[{{ $i }}]" style="ime-mode:disabled;" inputmode="numeric"
-                       value="{{ old('other_asset.'.$i,
-                            isset($prefillFamily[$i]['property'])
-                              ? number_format(max(0, (int)$prefillFamily[$i]['property'] - (int)($prefillFamily[$i]['cash'] ?? 0)))
-                              : ''
-                       ) }}">千円
+              <td class="border px-1 py-0 signed-money-cell">
+                @php $rowOtherAsset = $resolveOtherAssetValue($prefillFamily[$i] ?? []); @endphp
+                <input type="text" class="form-control title-field-input js-signed-money signed-money-input"
+                       name="other_asset[{{ $i }}]" style="ime-mode:disabled;" inputmode="text"
+                       value="{{ old('other_asset.'.$i, $rowOtherAsset === '' ? '' : number_format($rowOtherAsset)) }}">千円
               </td>
               <td class="border px-1 py-0 js-property-cell" data-row="{{ $i }}">                
-                <input type="text" class="form-control suji8 comma decimal0 readonly-money"
+                <input type="text" class="form-control suji8 comma decimal0 readonly-money title-field-calc"
                        name="property[{{ $i }}]" readonly tabindex="-1"
                        value="{{ old('property.'.$i, isset($prefillFamily[$i]['property']) ? number_format($prefillFamily[$i]['property']) : '') }}">千円
               </td>
@@ -485,21 +610,18 @@
           <tr class="bg-cream">
             <td colspan="16"> </td>
             <td class="border px-1 py-1">
-              <input type="text" class="form-control suji8 comma decimal0"
+              <input type="text" class="form-control suji8 comma decimal0 title-field-calc"
                      name="cash[110]" readonly tabindex="-1"
                      value="{{ old('cash.110', isset($prefillHeader['cash_110']) ? number_format($prefillHeader['cash_110']) : '') }}">千円
             </td>
             <td class="border px-1 py-1">
-              <input type="text" class="form-control suji8 comma decimal0"
+              @php $sumOtherAsset = $resolveHeaderOtherAssetValue($prefillHeader ?? []); @endphp
+              <input type="text" class="form-control suji8 comma decimal0 title-field-calc"
                      name="other_asset[110]" readonly tabindex="-1"
-                     value="{{ old('other_asset.110',
-                          (isset($prefillHeader['property_110'], $prefillHeader['cash_110']))
-                            ? number_format(max(0, (int)$prefillHeader['property_110'] - (int)$prefillHeader['cash_110']))
-                            : ''
-                     ) }}">千円
+                     value="{{ old('other_asset.110', $sumOtherAsset === '' ? '' : number_format($sumOtherAsset)) }}">千円
             </td>
             <td class="border px-1 py-1">
-              <input type="text" class="form-control suji8 comma decimal0"
+              <input type="text" class="form-control suji8 comma decimal0 title-field-calc"              
                      name="property[110]" readonly tabindex="-1"
                      value="{{ old('property.110', isset($prefillHeader['property_110']) ? number_format($prefillHeader['property_110']) : '') }}">千円
             </td>
@@ -511,16 +633,26 @@
   <div class="mt-3 ms-3">
       ※一番上には被相続人を入力してください。	<br>
       ※金融資産の運用利回り(税引後)	
-            <input type="text" class="form-control d-inline input-small text-end"
+            <input type="text" class="form-control d-inline input-small text-end title-field-input"
                    name="per" style="width:60px; ime-mode:disabled;" inputmode="numeric"
-                   value="{{ old('per', $prefillHeader['per'] ?? '') }}">
+                   value="{{ old('per', data_get($prefillHeader ?? [], 'per', '1.0')) }}">
       ％	<br>
       ※相続税の２割加算の対象になる人は「ﾚ」を付けて下さい。	<br>
       ※暦年課税の贈与で特例贈与の適用を受けられる受贈者は「ﾚ」を付けて下さい。年齢による判定は自動で行ないます。	<br>
-      <span class="ms-4">法定相続人の人数
-            <input type="text" class="form-control suji2" name="houtei_ninzu" readonly tabindex="-1">
-      人	</span>
+      <div>
+          ※税法上の法定相続人の人数
+          <input type="text"
+                 class="form-control d-inline-block suji2 title-field-calc"
+                 name="houtei_ninzu"
+                 readonly
+                 tabindex="-1"
+                 style="width:50px; vertical-align:middle;">
+          人
+      </div>
   </div>
+
+      <br>
+      <br>
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -530,6 +662,65 @@ document.addEventListener('DOMContentLoaded', function () {
       function isNameBlank(i) {
         const nameInput = document.querySelector(`input[name="name[${i}]"]`);
         return !nameInput || String(nameInput.value ?? '').trim() === '';
+      }
+
+      function applyDisabledVisual(el, blank) {
+        if (!el) return;
+
+        // checkbox / radio にはテキスト入力用の装飾クラスを当てない
+        if (el.type === 'checkbox' || el.type === 'radio') {
+          return;
+        }
+
+        el.classList.toggle('title-field-disabled', blank);
+
+        if (blank) {
+          el.classList.remove('title-field-input');
+          el.classList.remove('title-field-ref');
+        } else {
+          // readonly の自動計算欄は calc を維持し、編集欄だけ input を戻す
+          if (!el.hasAttribute('readonly')) {
+            el.classList.add('title-field-input');
+          }
+        }
+      }
+
+      function applyDisabledVisualToCell(cell, blank) {
+        if (!cell) return;
+        
+        cell.classList.toggle('row-disabled-cell', blank);
+        
+        cell.classList.remove('title-check-cell-input', 'title-check-cell-disabled');
+
+        // checkbox を含むセルは、セル自体を色分けする
+        if (cell.classList.contains('js-twenty-percent-cell') || cell.classList.contains('js-tokurei-zouyo-cell')) {
+          if (blank) {
+            cell.classList.add('title-check-cell-disabled');
+          } else {
+            cell.classList.add('title-check-cell-input');
+          }
+        }        
+        
+
+        const fields = cell.querySelectorAll('input, select, textarea');
+        fields.forEach((el) => {
+
+          if (el.type === 'hidden') return;
+          
+          if (el.type === 'checkbox' || el.type === 'radio') {
+            if (blank) {
+              el.disabled = true;
+            } else {
+              el.disabled = false;
+            }
+            return;
+          }          
+
+          if (el.hasAttribute('readonly')) return;
+
+          applyDisabledVisual(el, blank);
+
+        });        
       }
     
       function clearElementValue(el) {
@@ -571,8 +762,6 @@ document.addEventListener('DOMContentLoaded', function () {
           `input[name="civil_share_bunbo[${i}]"]`,
           `input[name="bunsi[${i}]"]`,
           `input[name="bunbo[${i}]"]`,
-          `input[name="twenty_percent_add[${i}]"]`,
-          `input[name="tokurei_zouyo[${i}]"]`,
           `input[name="birth_year[${i}]"]`,
           `input[name="birth_month[${i}]"]`,
           `input[name="birth_day[${i}]"]`,
@@ -587,13 +776,19 @@ document.addEventListener('DOMContentLoaded', function () {
           if (!el) return;
     
           if (blank) {
+          
+            applyDisabledVisual(el, true);
+          
             clearElementValue(el);
+
             if (!el.hasAttribute('readonly')) {
               el.disabled = true;
             }
           } else {
             if (!el.hasAttribute('readonly')) {
               el.disabled = false;
+              
+              applyDisabledVisual(el, false);              
             }
           }
         });
@@ -605,12 +800,44 @@ document.addEventListener('DOMContentLoaded', function () {
           cell.classList.toggle('row-disabled-cell', blank);
         });
 
+
+        // チェックボックスを持つセル自体の input風背景も同期
+        applyDisabledVisualToCell(twentyPercentCell, blank);
+        applyDisabledVisualToCell(tokureiZouyoCell, blank);
+
+        // readonly の年齢・合計欄は既存の calc 表示を優先
+        if (ageCell) ageCell.querySelectorAll('input').forEach((el) => el.classList.add('title-field-calc'));
+        if (propertyCell) propertyCell.querySelectorAll('input').forEach((el) => el.classList.add('title-field-calc'));
+ 
         const twentyPercentCheckbox = document.querySelector(`input[name="twenty_percent_add[${i}]"][type="checkbox"]`);
         const tokureiZouyoCheckbox  = document.querySelector(`input[name="tokurei_zouyo[${i}]"][type="checkbox"]`);
+
+
+        [twentyPercentCheckbox, tokureiZouyoCheckbox].forEach((checkbox) => {
+          if (!checkbox) return;
+          if (blank) {
+            checkbox.checked = false;
+            checkbox.disabled = true;
+          } else {
+            checkbox.disabled = false;
+          }
+        });
+
 
         [twentyPercentCheckbox, tokureiZouyoCheckbox].forEach((checkbox) => {
           if (!checkbox) return;
           checkbox.classList.toggle('row-disabled-checkbox', blank);
+        });
+
+        // checkbox セルの見た目を最終同期
+        [twentyPercentCell, tokureiZouyoCell].forEach((cell) => {
+          if (!cell) return;
+          cell.classList.remove('title-check-cell-input', 'title-check-cell-disabled');
+          if (blank) {
+            cell.classList.add('title-check-cell-disabled');
+          } else {
+            cell.classList.add('title-check-cell-input');
+          }          
         });        
         
       }
@@ -629,8 +856,6 @@ document.addEventListener('DOMContentLoaded', function () {
             `input[name="civil_share_bunbo[${i}]"]`,
             `input[name="bunsi[${i}]"]`,
             `input[name="bunbo[${i}]"]`,
-            `input[name="twenty_percent_add[${i}]"][type="checkbox"]`,
-            `input[name="tokurei_zouyo[${i}]"][type="checkbox"]`,
             `input[name="birth_year[${i}]"]`,
             `input[name="birth_month[${i}]"]`,
             `input[name="birth_day[${i}]"]`,
@@ -718,50 +943,121 @@ document.addEventListener('DOMContentLoaded', function () {
 
 </script>
 
-
 <script>
-  // 3桁区切りのカンマを付ける関数
-  function formatNumber(input) {
-    let raw = input.value.replace(/,/g, '').replace(/[^\d]/g, '');
-    if (raw === '') return;
-    input.value = Number(raw).toLocaleString();
+  function normalizeUnsignedRaw(value) {
+    return String(value ?? '')
+      .replace(/[，,]/g, '')
+      .replace(/[^\d]/g, '');
+  }
+
+function normalizeSignedRaw(value) {
+    let raw = String(value ?? '').trim();
+
+    raw = raw
+      .replace(/[，,]/g, '')
+      .replace(/^[\-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]+/u, '-');
+
+    const negative = raw.startsWith('-');
+    const digits = raw.replace(/[^\d]/g, '');
+
+  if (digits === '') {
+      return negative ? '-' : '';
+    }
+
+    return `${negative ? '-' : ''}${digits}`;
+  }
+
+
+  function formatUnsignedNumber(input) {
+    const digits = normalizeUnsignedRaw(input.value);
+    input.value = digits === '' ? '' : Number(digits).toLocaleString();
+  }
+
+  function formatSignedNumber(input) {
+    const normalized = normalizeSignedRaw(input.value);
+
+    if (normalized === '' || normalized === '-') {
+      input.value = '';
+      return;
+    }
+
+    const negative = normalized.startsWith('-');
+    const digits = negative ? normalized.slice(1) : normalized;
+    input.value = `${negative ? '-' : ''}${Number(digits).toLocaleString()}`;
+  }
+
+  function isEditingControlKey(e) {
+    return [
+      'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
+      'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'
+    ].includes(e.key) || e.ctrlKey || e.metaKey;
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    // ★ 金融資産(cash) / その他資産(other_asset) / 合計(property=readonly) を対象にカンマ付与
-    const priceInputs = document.querySelectorAll(
-      'input[name^="cash["], input[name^="other_asset["], input[name^="property["]'
-    );
+    const cashInputs = document.querySelectorAll('input[name^="cash["]');
 
-    priceInputs.forEach(function (input) {
+    cashInputs.forEach(function (input) {
+      if (!input.hasAttribute('readonly')) {
+        input.addEventListener('keydown', function (e) {
+          if (isEditingControlKey(e)) {
+            return;
+          }
+
+          if (!/^\d$/.test(e.key)) {
+            e.preventDefault();
+          }
+        });
+
+        input.addEventListener('input', function () {
+          input.value = normalizeUnsignedRaw(input.value);
+        });
+      }
+
       input.addEventListener('blur', function () {
-        formatNumber(input);
+        formatUnsignedNumber(input);
       });
+
+      formatUnsignedNumber(input);
     });
-  });
-</script>
 
+    const signedPriceInputs = document.querySelectorAll('.js-signed-money');
 
-<script>
-  document.addEventListener('DOMContentLoaded', function () {
-    const percentInput = document.querySelector('input[name="per"]');
+    signedPriceInputs.forEach(function (input) {
+      input.addEventListener('keydown', function (e) {
+        if (isEditingControlKey(e)) {
+          return;
+        }
 
-    if (percentInput) {
-      percentInput.addEventListener('blur', function () {
-        let value = percentInput.value.trim();
+        if (/^[-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]$/u.test(e.key)) {
+          const current = String(input.value ?? '');
+          const selStart = input.selectionStart ?? 0;
+          const selEnd = input.selectionEnd ?? 0;
+          const currentWithoutSelection = current.slice(0, selStart) + current.slice(selEnd);
 
-        // 数字以外の文字を排除
-        value = value.replace(/[^\d.]/g, '');
+          if (
+            selStart !== 0 ||
+            /^[-\u2212\u30FC\uFF0D\u2010\u2011\u2012\u2013\u2014\u2015\uFE63\uFF70]/u.test(currentWithoutSelection)
+          ) {
+            e.preventDefault();
+          }
+          return;
+        }
 
-        // 小数第一位までに丸める（例：12.345 → 12.3）
-        let num = parseFloat(value);
-        if (!isNaN(num)) {
-          percentInput.value = num.toFixed(1); // 小数1桁に固定
-        } else {
-          percentInput.value = ''; // 数字じゃない場合は空に
+        if (!/^\d$/.test(e.key)) {
+          e.preventDefault();
         }
       });
-    }
+
+      input.addEventListener('input', function () {
+        input.value = normalizeSignedRaw(input.value);
+      });
+
+      input.addEventListener('blur', function () {
+        formatSignedNumber(input);
+      });
+
+      formatSignedNumber(input);
+    });
   });
 </script>
 
@@ -841,11 +1137,18 @@ document.addEventListener('DOMContentLoaded', function () {
  
   
   function sanitizeNumber(str) {
-    return parseInt(String(str ?? '').replace(/,/g, '').replace(/[^\d]/g, ''), 10) || 0;
+
+    const normalized = normalizeSignedRaw(str);
+    if (normalized === '' || normalized === '-') return 0;
+
+    return parseInt(normalized, 10) || 0;
+
   }
+
   function formatWithComma(num) {
     return Number(num || 0).toLocaleString();
   }
+
 
   window.recalcRowTotal = function recalcRowTotal(i) {  
     const cashInput  = document.querySelector(`input[name="cash[${i}]"]`);

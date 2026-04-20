@@ -342,6 +342,12 @@ final class ZouyoController extends Controller
                     'per'           => $ph->after_tax_yield_percent,
                     'property_110'  => $ph->property_total_thousand,
                     'cash_110'      => $ph->cash_total_thousand,
+                    
+                    'asset_input_mode' => in_array((string)($ph->asset_input_mode ?? ''), ['split', 'combined'], true)
+                        ? (string)$ph->asset_input_mode
+                        : 'split',
+
+
                 ];
 
 
@@ -986,6 +992,7 @@ Log::debug('PDF selected pages in makeInputContext', [
             'header_day',
             'header_proposer_name',
             'per',
+            'asset_input_mode',            
             'property.110',
             'cash.110',
         ]);
@@ -1023,6 +1030,10 @@ Log::debug('PDF selected pages in makeInputContext', [
                     'after_tax_yield_percent' => $this->percentOrNull($req->input('per')),
                     'property_total_thousand'  => $propertyTotalK,
                     'cash_total_thousand'      => $cashTotalK,
+                    'asset_input_mode'         => in_array((string)$req->input('asset_input_mode'), ['split', 'combined'], true)
+                        ? (string)$req->input('asset_input_mode')
+                        : 'split',                    
+                    
                 ]
             );
         } else {

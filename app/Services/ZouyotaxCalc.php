@@ -3066,13 +3066,15 @@ for ($no = 2; $no <= 10; $no++) {
         $calendarPerNoK[$no] += $over3K;
 
     }
-
+        
+        /*
         Log::info('2026.04.20 000002 ', [
             '$no'       => $no,
             '$within3K'    => $within3K,
             '$calendarPerNoK[$no]'             => $calendarPerNoK[$no],
             '$over3K'   => $over3K,
         ]);
+        */
 
 }
 
@@ -3513,7 +3515,7 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
         $total    += $sum;
 
 
-     
+        /*
         Log::debug('2026.04.20 00001', [
             '$cal'           => $cal,
             '$set'           => $set,
@@ -3522,6 +3524,7 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
             '$totalSet'      => $totalSet,
             '$total'         => $total,
         ]);
+        */
 
 
 
@@ -6098,6 +6101,7 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
             }
             $no = (int)($r['no'] ?? 0);
             $amtK = (int)($r['amount_thousand'] ?? 0);
+            $taxK = max(0, (int)($r['settlement_tax20_thousand'] ?? 0));            
             if ($no < 2 || $no > 10 || $amtK <= 0) {
                 continue;
             }
@@ -6125,6 +6129,17 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
             $remainingBudgetYen -= $yen;
             $idx[$key]['cash_out_total'] += max(0, $yen);
 
+
+            // ★将来の相続時精算課税分の贈与税額控除を年次推移へ反映
+            //   calcSettlementGiftTaxesByRecipientWithVirtual() は
+            //   virtual[$deathDate]['settlement_tax'] を参照しているため、
+            //   ここで「その年次までに実行済み」の精算贈与税額（円）を受贈者別に加算する
+            if ($taxK > 0) {
+                $idx[$key]['settlement_tax'][$no]
+                    = (int)($idx[$key]['settlement_tax'][$no] ?? 0)
+                    + $this->toYen($taxK);
+            }
+ 
             
             $giftYear = (int)($r['y'] ?? 0);
             $amtK     = (int)($r['amount_thousand'] ?? 0);
