@@ -171,6 +171,9 @@ class ZouyoA3PdfGenerator
                 'per'           => $ph->after_tax_yield_percent,
                 'property_110'  => $ph->property_total_thousand,
                 'cash_110'      => $ph->cash_total_thousand,
+                'asset_input_mode' => in_array((string)($ph->asset_input_mode ?? ''), ['split', 'combined'], true)
+                    ? (string)$ph->asset_input_mode
+                    : 'split',                
                 
             ];
         }

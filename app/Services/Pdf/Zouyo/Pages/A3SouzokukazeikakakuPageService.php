@@ -254,19 +254,18 @@ class A3SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
             'taxable_price'          => 135.8,
             'basic_deduction'        => 142.9,
             'taxable_estate'         => 150.0,
-            'legal_share'            => 157.1,
-            'sozoku_tax_total'       => 163.4,
-            'anbun_ratio'            => 170.7,
-            'sanzutsu_tax_total'     => 177.4,
-            'two_wari'               => 184.4,
-            'gift_tax_credit'        => 191.4,
-            'spouse_relief'          => 198.4,
-            'other_credit'           => 205.4,
-            'credits_total'          => 212.4,
-            'sashihiki_tax'          => 219.0,
-            'settlement_gift_tax'    => 226.0,
-            'payable_tax'            => 232.8,
-            'refund_tax'             => 239.8,
+            'sozoku_tax_total'       => 156.8,
+            'anbun_ratio'            => 163.4,
+            'sanzutsu_tax_total'     => 170.7,
+            'two_wari'               => 177.4,
+            'gift_tax_credit'        => 184.4,
+            'spouse_relief'          => 191.4,
+            'other_credit'           => 198.4,
+            'credits_total'          => 205.4,
+            'sashihiki_tax'          => 212.4,
+            'settlement_gift_tax'    => 219.0,
+            'payable_tax'            => 226.0,
+            'refund_tax'             => 232.8,
         ];
 
         $pdf->SetFont('mspgothic03', '', 8.2);
@@ -302,16 +301,6 @@ class A3SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
             // 課税遺産総額
             $this->drawA3TableCell($pdf, $this->formatTrendAmountCell($row['taxable_estate'] ?? null), $xx, $middleRowY['taxable_estate'], $middleColWidth, $middleRowHeight, 'R');
 
-            // 法定相続分（合計欄は空欄）
-            $this->drawA3TableCell(
-                $pdf,
-                (string)($row['legal_share'] ?? ''),
-                $xx,
-                $middleRowY['legal_share'],
-                $middleColWidth,
-                $middleRowHeight,
-                'C'
-            );
 
             // 相続税の総額
             $this->drawA3TableCell($pdf, $this->formatTrendAmountCell($row['sozoku_tax_total'] ?? null), $xx, $middleRowY['sozoku_tax_total'], $middleColWidth, $middleRowHeight, 'R');
@@ -399,7 +388,7 @@ class A3SouzokukazeikakakuPageService implements ZouyoPdfPageInterface
                 0,
                 0,
                 25.0,
-                248.0
+                240.0
             );
         }
 

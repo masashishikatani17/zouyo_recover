@@ -233,6 +233,44 @@
 
   }
   
+  .future-basic-override-table {
+    width: 980px;
+    margin-left: 1.25rem; /* ms-5 相当で本表と左位置を合わせる */
+    margin-bottom: 2px;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  .future-basic-override-table td {
+    padding: 0 2px 2px 2px;
+    text-align: center;
+    vertical-align: bottom;
+    border: none;
+  }
+
+  .future-basic-override-table__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .future-basic-override-table__item input[type="checkbox"] {
+    width: auto;
+    height: auto;
+    margin: 0;
+  }
+  
+
+  .future-basic-override-table__unit {
+    text-align: right !important;
+    font-weight: normal;
+    padding-right: 8px !important;
+  }  
+
+  
    /* ※ を上寄せにする */
     .va-top {
       vertical-align: top !important;
@@ -350,6 +388,19 @@
             $giftBasicDeductionResolver->getBasicDeductionYen(auth()->user()?->company_id, (int) $giftYear) / 1000
         );
     }
+    
+
+    $calendarBasicOverrideEnabled = (string) old(
+        'calendar_basic_override_enabled',
+        (int) ($prefillFuture['header']['calendar_basic_override_enabled'] ?? 0)
+    ) === '1';
+
+    $settlementBasicOverrideEnabled = (string) old(
+        'settlement_basic_override_enabled',
+        (int) ($prefillFuture['header']['settlement_basic_override_enabled'] ?? 0)
+    ) === '1';
+
+
 @endphp
 
   {{-- JS用 back-up。基本は form[data-data-id] / APP_DATA_ID を使用 --}}
@@ -513,14 +564,63 @@
     </div>
 
 
-
-    <table class="table-auto small-text mt-4" style="width: 980px;">
-        <!-- ★ 単位表示用の最初の行を追加 -->
-        <tr>
-          <th class="text-end small-text" style="border: none; font-weight: normal;">(単位:千円)</th>
-        </tr>
+    <table class="future-basic-override-table">
+      <colgroup>
+        <col style="26px;">
+        <col style="40px;">
+        <col style="40px;">
+        <col style="70px;">
+        <col style="70px;">
+        <col style="70px;">
+        <col style="70px;">
+        <col style="70px;">
+        <col style="70px;">
+        <col style="70px;">
+        <col style="70px;">
+        <col style="70px;">
+        <col style="70px;">
+        <col style="70px;">
+      </colgroup>
+      <tr>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td>
+          <label class="future-basic-override-table__item">
+            <input
+              type="checkbox"
+              name="calendar_basic_override_enabled"
+              value="1"
+              @checked($calendarBasicOverrideEnabled)
+            >
+            <span>基礎控除額修正</span>
+          </label>
+        </td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td>
+          <label class="future-basic-override-table__item">
+            <input
+              type="checkbox"
+              name="settlement_basic_override_enabled"
+              value="1"
+              @checked($settlementBasicOverrideEnabled)
+            >
+            <span>基礎控除額修正</span>
+          </label>
+        </td>
+        <td></td>
+        <td></td>
+        <td colspan="4" class="future-basic-override-table__unit">(単位:千円)</td>        
+      </tr>
     </table>
-      
+
+
     <table class="table-compact-p ms-5 mb-3" id="future-gift-table">
       <colgroup>
         <col style="26px;">
@@ -553,7 +653,7 @@
           <th id="cal-tax-header">(一般税率)<br>贈与税額</th>          
           <th>贈与加算<br>累計額</th>
           <th class="future-edit-col-header">贈与額</th>
-          <th id="set-basic-deduction-header">{{ number_format($giftBasicDeductionK) }}千円<br>基礎控除</th>          
+          <th id="set-basic-deduction-header">{{ number_format($giftBasicDeductionK / 10) }}万円<br>基礎控除</th>
           <th>基礎控除後</th>
           <th>2500万円<br>特別控除後</th>
           <th>20%の<br>贈与税額</th>
@@ -593,7 +693,7 @@
           </td>
 
           <td class="border px-1 py-0">
-            <input type="text" class="form-control suji7 comma decimal0" name="cal_basic[{{ $i }}]" style=" ime-mode: disabled; background-color: #f0f0f0;" readonly tabindex="-1" inputmode="numeric" value="{{ number_format($basicK * -1) }}">
+            <input type="text" class="form-control suji7 comma decimal0" name="cal_basic[{{ $i }}]" style=" ime-mode: disabled; background-color: #f0f0f0;" readonly tabindex="-1" inputmode="numeric" value="{{ number_format($basicK) }}">
           </td>
 
           <td class="border px-1 py-0">
@@ -924,7 +1024,13 @@ const updateGiftBasicDeductionHeader = (baseYear) => {
 
   const header = document.getElementById('set-basic-deduction-header');
   if (header) {
-    header.innerHTML = `${fmtK(basicK)}千円<br>基礎控除`;
+
+    const basicMan = basicK / 10;
+    const basicManText = Number.isInteger(basicMan)
+      ? fmtK(basicMan)
+      : basicMan.toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    header.innerHTML = `${basicManText}万円<br>基礎控除`;
+
   }
 };
 
@@ -1231,7 +1337,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
 
               const deathYear = giftYear || getFutureRowYear(i);
               if (!deathYear) {
-                setK('cal_basic', i, amountK_self > 0 ? -basicKForRow : '');
+                setK('cal_basic', i, amountK_self > 0 ? basicKForRow : '');
                 setK('cal_after_basic', i, afterK);
                 setK('cal_tax', i, taxK);
                 setK('cal_cum', i, '');
@@ -1291,7 +1397,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
               }
 
 
-              setK('cal_basic', i, amountK_self > 0 ? -basicKForRow : '');              
+              setK('cal_basic', i, amountK_self > 0 ? basicKForRow : '');              
               setK('cal_after_basic', i, afterK);
               setK('cal_tax', i, taxK);
 
@@ -1351,7 +1457,7 @@ const calcRekinenCumK = (rekinen, deathDate) => {
           const basicKForRow = getGiftBasicDeductionKByYear(giftYear || getFutureBaseYear());
           const amountK = toInt(el.value, 0);
 
-          setK('set_basic110', i, amountK > 0 ? -basicKForRow : '');
+          setK('set_basic110', i, amountK > 0 ? basicKForRow : '');
 
           const afterBasic = Math.max(amountK - basicKForRow, 0);          
           const useThis = Math.min(remain25m, afterBasic);
@@ -2583,6 +2689,12 @@ function applyFuturePayload(p) {
     if (p.header.year  != null) setInputValue('future_base_year',  p.header.year);
     if (p.header.month != null) setInputValue('future_base_month', p.header.month);
     if (p.header.day   != null) setInputValue('future_base_day',   p.header.day);
+    if (p.header.calendar_basic_override_enabled != null) {
+      setCheckboxChecked('calendar_basic_override_enabled', p.header.calendar_basic_override_enabled);
+    }
+    if (p.header.settlement_basic_override_enabled != null) {
+      setCheckboxChecked('settlement_basic_override_enabled', p.header.settlement_basic_override_enabled);
+    }    
     
     try { window.rerenderFutureGiftYears?.({ skipRecalc: true }); } catch (_) {}    
   }
@@ -2602,12 +2714,12 @@ function applyFuturePayload(p) {
     };
 
     mapObjFormatted(p.plan.cal_amount, 'cal_amount');
-    mapObjFormattedMinus(p.plan.cal_basic, 'cal_basic');  // 1100 → -1,100
+    mapObjFormatted(p.plan.cal_basic, 'cal_basic');       // 1100 → 1,100    
     mapObjFormatted(p.plan.cal_after_basic, 'cal_after_basic');
     mapObjFormatted(p.plan.cal_tax, 'cal_tax');
     mapObjFormatted(p.plan.cal_cum, 'cal_cum');
     mapObjFormatted(p.plan.set_amount, 'set_amount');
-    mapObjFormattedMinus(p.plan.set_basic110, 'set_basic110');  // 1100 → -1,100
+    mapObjFormatted(p.plan.set_basic110, 'set_basic110');       // 1100 → 1,100    
     mapObjFormatted(p.plan.set_after_basic, 'set_after_basic');
     mapObjFormatted(p.plan.set_after_25m, 'set_after_25m');
     mapObjFormatted(p.plan.set_tax20, 'set_tax20');
@@ -2832,7 +2944,7 @@ function applyFuturePayload(p) {
       const kojoK = calcGiftTaxKyen(afterK, isTokurei); // ←★JS関数で贈与税額を算出！
     
       setK('cal_amount', 0, totalK);
-      setK('cal_basic', 0, -basicK);
+      setK('cal_basic', 0, basicK);
       setK('cal_after_basic', 0, afterK);
       setK('cal_tax', 0, kojoK);  // ←今度は正しく表示される！
       try { recalcPastOnlyCum0 && recalcPastOnlyCum0(); } catch (_) {}
@@ -2889,6 +3001,11 @@ function setInputValue(name, v) {
   if (el) el.value = v ?? '';
 }
 
+function setCheckboxChecked(name, v) {
+  const el = document.querySelector(`input[type="checkbox"][name="${name}"]`);
+  if (!el) return;
+  el.checked = String(v) === '1' || v === true || Number(v) === 1;
+}
 
 /**
  * ============================================================
@@ -3206,6 +3323,19 @@ window.saveCurrentInputs = async function (saveUrl, options = {}) {
         const el = document.querySelector(`input[name="${k}"]`);
         if (el && el.value !== '') fd.set(k, el.value);
       });
+      
+
+      [
+        'calendar_basic_override_enabled',
+        'settlement_basic_override_enabled'
+      ].forEach((k) => {
+        const el = document.querySelector(`input[type="checkbox"][name="${k}"]`);
+        if (el) {
+          fd.set(k, el.checked ? '1' : '0');
+        }
+      });      
+      
+      
     }
 
     if (includeRows) {
@@ -3469,7 +3599,7 @@ function recalcPastSettlementRow0() {
 
     // 0行目へ反映（ご要望どおり「過年度の贈与の合計」を set_*[0] に集約表示）
     setK('set_amount',       0, sumK);
-    setK('set_basic110',     0, basic110K ? -basic110K : 0);
+    setK('set_basic110',     0, basic110K ? basic110K : 0);
     setK('set_after_basic',  0, afterBasicK);
     setK('set_after_25m',    0, after25mK);
     setK('set_tax20',        0, tax20K);

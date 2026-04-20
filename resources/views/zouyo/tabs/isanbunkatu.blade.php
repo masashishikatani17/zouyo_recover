@@ -1566,6 +1566,7 @@
   function isanApplyHeirState(no, hasName) {
     const pane = isanGetPane() || document;
     const mode = document.querySelector('input[name="input_mode"]:checked')?.value || 'auto';
+    const assetMode = document.querySelector('input[name="asset_input_mode"]:checked')?.value || 'split';
 
     const cashEl   = pane.querySelector(`input[name="id_cash_share[${no}]"]`);
     const otherEl  = pane.querySelector(`input[name="id_other_share[${no}]"]`);
@@ -1584,17 +1585,26 @@
         el.disabled = true;
         el.readOnly = true;
         el.style.backgroundColor = '#f0f0f0';
-        setIsanVisualState(el, 'calc');        
+        setIsanVisualState(el, 'calc');
       });
       isanClearColumn(no);
       return;
     }
 
     if (cashEl) {
-      cashEl.disabled = false;
-      cashEl.readOnly = (mode !== 'manual');
-      cashEl.style.backgroundColor = (mode === 'manual') ? '' : '#f0f0f0';
-      setIsanVisualState(cashEl, (mode === 'manual') ? 'input' : 'calc');      
+      if (assetMode === 'combined') {
+        cashEl.value = '';
+        cashEl.disabled = true;
+        cashEl.readOnly = true;
+        cashEl.tabIndex = -1;
+        cashEl.style.backgroundColor = '#f0f0f0';
+        setIsanVisualState(cashEl, 'calc');
+      } else {
+        cashEl.disabled = false;
+        cashEl.readOnly = (mode !== 'manual');
+        cashEl.style.backgroundColor = (mode === 'manual') ? '' : '#f0f0f0';
+        setIsanVisualState(cashEl, (mode === 'manual') ? 'input' : 'calc');
+      }
     }
 
     if (otherEl) {
@@ -1608,14 +1618,14 @@
       totalEl.disabled = false;
       totalEl.readOnly = true;
       totalEl.style.backgroundColor = '#f0f0f0';
-      setIsanVisualState(totalEl, 'calc');      
+      setIsanVisualState(totalEl, 'calc');
     }
 
     if (creditEl) {
       creditEl.disabled = false;
       creditEl.readOnly = false;
       creditEl.style.backgroundColor = '';
-      setIsanVisualState(creditEl, 'input');      
+      setIsanVisualState(creditEl, 'input');
     }
   }
 
@@ -1657,6 +1667,14 @@
       if (typeof updateLifetimeGiftAddition === 'function') updateLifetimeGiftAddition();
       if (typeof updateTaxablePriceTotal === 'function') updateTaxablePriceTotal();
     } catch (_) {}
+    
+
+    try {
+      if (typeof window.applyIsanAssetInputMode === 'function') {
+        window.applyIsanAssetInputMode();
+      }
+    } catch (_) {}    
+    
   }
 
   window.syncIsanFamilyHeaders = syncIsanFamilyHeaders;
@@ -2131,11 +2149,16 @@ document.addEventListener('DOMContentLoaded', function () {
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const modeRadios    = document.querySelectorAll('input[name="input_mode"]');
+  const assetModeRadios = document.querySelectorAll('input[name="asset_input_mode"]');  
   const manualInputs  = document.querySelectorAll('input[name^="id_taxable_manu["]');
   const totalInput    = document.getElementById('id_taxable_manu_total'); // 所有財産合計(被相続人)・千円
   const cashTotal     = document.getElementById('id_cash_total');         // ★金融資産 合計（千円）
   const otherTotal    = document.getElementById('id_other_total');        // ★その他資産 合計（千円）
 
+  // ★ 手入力時でも左側合計は被相続人(家族構成等)の固定値を維持する
+  const fixedCashTotalKyen  = cashTotal  ? (cashTotal.value  || '') : '';
+  const fixedOtherTotalKyen = otherTotal ? (otherTotal.value || '') : '';
+  const fixedPropertyKyen   = totalInput ? (totalInput.value || '') : '';
 
   // ★ 追加：金融資産/その他資産（相続人別）入力欄
   const cashShareInputs  = document.querySelectorAll('input[name^="id_cash_share["]');
@@ -2149,7 +2172,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // 現在のモードを保持（auto / manual）
   let currentMode = 'auto';
-  
+  let currentAssetInputMode = (() => {
+    const checked = document.querySelector('input[name="asset_input_mode"]:checked');
+    return checked ? checked.value : 'split';
+  })();
+
+  function getCurrentAssetInputMode() {
+    const checked = document.querySelector('input[name="asset_input_mode"]:checked');
+    return checked ? checked.value : 'split';
+  }  
 
   function hasHeirNameInput(el) {
     return String(el?.dataset?.hasName || '') === '1';
@@ -2234,7 +2265,7 @@ document.addEventListener('DOMContentLoaded', function () {
     cashShareInputs.forEach(function (el) {
       const m = el.name.match(/^id_cash_share\[(\d+)\]/);
       if (!m) return;
-      cashStore[m[1]] = el.value || '';
+      cashStore[m[1]] = (currentAssetInputMode === 'combined') ? '' : (el.value || '');      
     });
 
     otherShareInputs.forEach(function (el) {
@@ -2321,6 +2352,9 @@ document.addEventListener('DOMContentLoaded', function () {
   function recomputeFromSplitInputsIfManual() {
     if (currentMode !== 'manual') return;
 
+
+    const isCombined = currentAssetInputMode === 'combined';    
+
     let sumCash  = 0;
     let sumOther = 0;
 
@@ -2335,8 +2369,14 @@ document.addEventListener('DOMContentLoaded', function () {
         if (ownEl)   ownEl.value   = '';
         continue;
       }
+      
 
-      const cash  = sanitizeInt(cashEl ? cashEl.value : '');
+      if (isCombined && cashEl) {
+        cashEl.value = '';
+        cashStore[String(no)] = '';
+      }      
+
+      const cash  = isCombined ? 0 : sanitizeInt(cashEl ? cashEl.value : '');      
       const other = sanitizeInt(otherEl ? otherEl.value : '');
       const own   = cash + other;
 
@@ -2350,12 +2390,15 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     }
 
-    // 左側：合計を更新
-    if (cashTotal)  cashTotal.value  = formatComma(sumCash);
-    if (otherTotal) otherTotal.value = formatComma(sumOther);
-    if (totalInput) totalInput.value = formatComma(sumCash + sumOther);
+    
+    // ★ 左側合計は手入力値では再計算せず、被相続人の固定値を維持する
+    if (cashTotal)  cashTotal.value  = isCombined ? '' : fixedCashTotalKyen;
+    if (otherTotal) otherTotal.value = isCombined ? fixedPropertyKyen : fixedOtherTotalKyen;
+    if (totalInput) totalInput.value = fixedPropertyKyen;
+ 
 
     // 課税価格合計（所有財産＋生前贈与加算）も再計算
+    // ※ base は property[1]（固定値）を使う    
     if (typeof updateTaxablePriceTotal === 'function') {
       updateTaxablePriceTotal();
     }
@@ -2510,8 +2553,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // ★金融資産/その他資産を更新
   function updateAssetSplitRows() {
-    const cashK  = cashTotal ? sanitizeInt(cashTotal.value) : 0;
-    const othK   = otherTotal ? sanitizeInt(otherTotal.value) : 0;
+    const isCombined = currentAssetInputMode === 'combined';
+    const cashK  = isCombined ? 0 : (cashTotal ? sanitizeInt(cashTotal.value) : 0);
+    const othK   = isCombined
+      ? (totalInput ? sanitizeInt(totalInput.value) : 0)
+      : (otherTotal ? sanitizeInt(otherTotal.value) : 0);
 
     const cashShares  = allocateByMode(cashK);
     const otherShares = allocateByMode(othK);
@@ -2525,11 +2571,114 @@ document.addEventListener('DOMContentLoaded', function () {
         if (othCell)  othCell.value  = '';
         continue;
       }
-      if (cashCell) cashCell.value = cashShares[no] ? cashShares[no].toLocaleString() : '';
+
+      if (cashCell) {
+        if (isCombined) {
+          cashCell.value = '';
+          cashStore[String(no)] = '';
+        } else {
+          cashCell.value = cashShares[no] ? cashShares[no].toLocaleString() : '';
+        }
+      }
+
       if (othCell)  othCell.value  = otherShares[no] ? otherShares[no].toLocaleString() : '';
 
     }
   }
+  
+
+  function applyIsanAssetInputMode() {
+    currentAssetInputMode = getCurrentAssetInputMode();
+    const isCombined = currentAssetInputMode === 'combined';
+
+    if (cashTotal) {
+      cashTotal.value = isCombined ? '' : fixedCashTotalKyen;
+      cashTotal.setAttribute('readonly', 'readonly');
+      cashTotal.setAttribute('tabindex', '-1');
+      cashTotal.style.backgroundColor = '#f0f0f0';
+      setIsanVisualState(cashTotal, 'calc');
+    }
+
+    if (otherTotal) {
+      otherTotal.value = isCombined ? fixedPropertyKyen : fixedOtherTotalKyen;
+      otherTotal.setAttribute('readonly', 'readonly');
+      otherTotal.setAttribute('tabindex', '-1');
+      otherTotal.style.backgroundColor = '#f0f0f0';
+      setIsanVisualState(otherTotal, 'calc');
+    }
+
+    if (totalInput) {
+      totalInput.value = fixedPropertyKyen;
+      totalInput.setAttribute('readonly', 'readonly');
+      totalInput.setAttribute('tabindex', '-1');
+      totalInput.style.backgroundColor = '#f0f0f0';
+      setIsanVisualState(totalInput, 'calc');
+    }
+
+    cashShareInputs.forEach(function (el) {
+      const m = el.name.match(/^id_cash_share\[(\d+)\]/);
+      if (!m) return;
+      const no = m[1];
+
+      if (!hasHeirNameInput(el)) {      
+        disableEditableCalcInput(el);
+        return;
+      }
+
+
+
+      if (isCombined) {
+        cashStore[no] = '';
+        el.value = '';
+        disableEditableCalcInput(el);
+        return;
+      }
+
+
+      if (currentMode === 'manual') {
+        enableEditableInput(el);
+        if (cashStore.hasOwnProperty(no)) {
+          el.value = cashStore[no];
+        }
+      } else {
+        enableReadonlyInput(el);
+      }
+    });
+
+    otherShareInputs.forEach(function (el) {
+      const m = el.name.match(/^id_other_share\[(\d+)\]/);
+      if (!m) return;
+      const no = m[1];
+
+      if (!hasHeirNameInput(el)) {
+        disableEditableCalcInput(el);
+        return;
+      }
+
+      if (currentMode === 'manual') {
+        enableEditableInput(el);
+        if (otherStore.hasOwnProperty(no)) {
+          el.value = otherStore[no];
+        }
+      } else {
+        enableReadonlyInput(el);
+      }
+    });
+
+    if (currentMode === 'auto') {
+      updateAssetSplitRows();
+    } else {
+      recomputeFromSplitInputsIfManual();
+    }
+
+    if (typeof updateTaxablePriceTotal === 'function') {
+      updateTaxablePriceTotal();
+    }
+  }
+
+  window.applyIsanAssetInputMode = applyIsanAssetInputMode;
+
+
 
   // ★ split行の readonly / editable 切替
   function applySplitEditable(isManual) {
@@ -2540,9 +2689,17 @@ document.addEventListener('DOMContentLoaded', function () {
       const no = m[1];
 
       if (!hasHeirNameInput(el)) {
-        disableEditableCalcInput(el);        
+        disableEditableCalcInput(el);
         return;
       }
+
+      if (currentAssetInputMode === 'combined') {
+        cashStore[no] = '';
+        el.value = '';
+        disableEditableCalcInput(el);
+        return;
+      }
+
       if (isManual) {
         enableEditableInput(el);
       } else {
@@ -2550,10 +2707,10 @@ document.addEventListener('DOMContentLoaded', function () {
       }
 
       if (isManual) {
-        // 手入力へ：退避値を復元
         if (cashStore.hasOwnProperty(no)) el.value = cashStore[no];
       }
     });
+
     otherShareInputs.forEach(function (el) {
       const m = el.name.match(/^id_other_share\[(\d+)\]/);
       if (!m) return;
@@ -2621,6 +2778,7 @@ document.addEventListener('DOMContentLoaded', function () {
       recomputeFromSplitInputsIfManual();
     }
 
+    applyIsanAssetInputMode();
 
   }
 
@@ -2696,6 +2854,7 @@ document.addEventListener('DOMContentLoaded', function () {
   
   currentMode = initialMode;
   applyInputMode(initialMode);
+  applyIsanAssetInputMode();  
   
   document.querySelectorAll('input[name^="id_other_credit["]').forEach(function (el) {
     if (!hasHeirNameInput(el)) {
@@ -2711,10 +2870,12 @@ document.addEventListener('DOMContentLoaded', function () {
     // manual 初期表示時も同期
     recomputeFromSplitInputsIfManual();
   }
-
+  applyIsanAssetInputMode();
 
 
     // ★ 見た目の最終同期
+    
+    const isCombinedAssetMode = currentAssetInputMode === 'combined';    
     for (let no = 2; no <= 10; no++) {
       const hasName = hasHeirNameByNo(no);
       const cashEl   = document.querySelector(`input[name="id_cash_share[${no}]"]`);
@@ -2727,7 +2888,11 @@ document.addEventListener('DOMContentLoaded', function () {
         continue;
       }
 
-      setIsanVisualState(cashEl,   currentMode === 'manual' ? 'input' : 'calc');
+      if (isCombinedAssetMode) {
+        disableEditableCalcInput(cashEl);
+      } else {
+        setIsanVisualState(cashEl, currentMode === 'manual' ? 'input' : 'calc');
+      }
       setIsanVisualState(otherEl,  currentMode === 'manual' ? 'input' : 'calc');
       setIsanVisualState(totalEl,  'calc');
       setIsanVisualState(creditEl, 'input');
@@ -2824,6 +2989,18 @@ document.addEventListener('DOMContentLoaded', function () {
 
     });
   });
+
+  assetModeRadios.forEach(function (r) {
+    r.addEventListener('change', function () {
+      currentAssetInputMode = getCurrentAssetInputMode();
+      applyIsanAssetInputMode();
+
+      if (typeof queueIsanPreviewRecalc === 'function') {
+        queueIsanPreviewRecalc();
+      }
+    });
+  });  
+  
 });
 </script>
 
@@ -2947,10 +3124,17 @@ document.addEventListener('DOMContentLoaded', function () {
   function applyIsanPreviewPayload(preview) {
     if (!preview) return;
 
+    const pane = isanPreviewPane();
     const left = preview.left || {};
     const members = preview.members || {};
-    const previewMode = String(preview.mode || '').toLowerCase();    
-    
+    const previewMode = String(preview.mode || '').toLowerCase();
+    const currentInputMode =
+      pane.querySelector('input[name="input_mode"]:checked')?.value ||
+      previewMode ||
+    'auto';
+    const keepFixedLeftTotals = currentInputMode === 'manual';
+     
+
     if (typeof window.setBasicDeductionMasterKyen === 'function') {
       window.setBasicDeductionMasterKyen(
         left.basic_deduction_base_kyen
@@ -2963,11 +3147,18 @@ document.addEventListener('DOMContentLoaded', function () {
     }
    
     isanPreviewSetValue('#isan-customer-name', left.customer_name ?? '');
-    isanPreviewSetValue('#id_cash_total', left.cash_total ?? '');
-    isanPreviewSetValue('#id_other_total', left.other_total ?? '');
-    isanPreviewSetValue('#id_taxable_manu_total', left.property_total ?? '');
-    isanPreviewSetValue('#isan-total-lifetime-gift', left.lifetime_gift_total ?? '');
-    isanPreviewSetValue('input[data-role="taxable_total_overall"]', left.taxable_total_overall ?? '');
+
+    // ★ 手入力時は左側の金融資産/その他資産/所有財産(合計)を
+    //    preview 応答でも上書きしない
+    if (!keepFixedLeftTotals) {
+      isanPreviewSetValue('#id_cash_total', left.cash_total ?? '');
+      isanPreviewSetValue('#id_other_total', left.other_total ?? '');
+      isanPreviewSetValue('#id_taxable_manu_total', left.property_total ?? '');
+      isanPreviewSetValue('input[data-role="taxable_total_overall"]', left.taxable_total_overall ?? '');
+    } else if (typeof updateTaxablePriceTotal === 'function') {
+      updateTaxablePriceTotal();
+    }
+
     isanPreviewSetText('#basic-deduction-label', left.basic_deduction_label ?? '');
     isanPreviewSetValue('#basic_deduction_amount', left.basic_deduction_amount ?? '');
     isanPreviewSetValue('#isan-total-taxable-estate', left.taxable_estate ?? '');
@@ -3012,6 +3203,16 @@ document.addEventListener('DOMContentLoaded', function () {
       // ★ auto preview で手入力ストアを上書きしない
       if (previewMode === 'manual' && typeof window.z_syncIsanManualStores === 'function') {
         window.z_syncIsanManualStores();
+      }
+    } catch (_) {}
+
+
+    try {
+      // ★ preview 応答で cash_share が再投入されても、
+      //    「金融資産を分けずに入力する」時は必ず
+      //    空欄・入力不可・グレーへ戻す
+      if (typeof window.applyIsanAssetInputMode === 'function') {
+        window.applyIsanAssetInputMode();
       }
     } catch (_) {}
 

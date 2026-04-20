@@ -342,6 +342,12 @@ final class ZouyoController extends Controller
                     'per'           => $ph->after_tax_yield_percent,
                     'property_110'  => $ph->property_total_thousand,
                     'cash_110'      => $ph->cash_total_thousand,
+                    
+                    'asset_input_mode' => in_array((string)($ph->asset_input_mode ?? ''), ['split', 'combined'], true)
+                        ? (string)$ph->asset_input_mode
+                        : 'split',
+
+
                 ];
 
 
@@ -986,6 +992,7 @@ Log::debug('PDF selected pages in makeInputContext', [
             'header_day',
             'header_proposer_name',
             'per',
+            'asset_input_mode',            
             'property.110',
             'cash.110',
         ]);
@@ -1004,6 +1011,12 @@ Log::debug('PDF selected pages in makeInputContext', [
             ]);
             */
 
+            $cashTotalK     = $this->toThousand($req->input('cash.110'));
+            $otherTotalK    = $this->signedThousandOrNull($req->input('other_asset.110'));
+            $propertyTotalK = ($cashTotalK !== null || $otherTotalK !== null)
+                ? (int)($cashTotalK ?? 0) + (int)($otherTotalK ?? 0)
+                : $this->signedThousandOrNull($req->input('property.110'));
+
             \App\Models\ProposalHeader::updateOrCreate(
                 ['data_id' => $dataId],
                 [
@@ -1015,8 +1028,12 @@ Log::debug('PDF selected pages in makeInputContext', [
                     'proposer_name' => $this->strOrNull($req->input('header_proposer_name')),
                     // 参考：利回り/合計欄があれば保存（存在しないならnull）
                     'after_tax_yield_percent' => $this->percentOrNull($req->input('per')),
-                    'property_total_thousand'  => $this->toThousand($req->input('property.110')),
-                    'cash_total_thousand'      => $this->toThousand($req->input('cash.110')),
+                    'property_total_thousand'  => $propertyTotalK,
+                    'cash_total_thousand'      => $cashTotalK,
+                    'asset_input_mode'         => in_array((string)$req->input('asset_input_mode'), ['split', 'combined'], true)
+                        ? (string)$req->input('asset_input_mode')
+                        : 'split',                    
+                    
                 ]
             );
         } else {
@@ -1090,10 +1107,17 @@ Log::debug('PDF selected pages in makeInputContext', [
             // ★ 金融資産(cash) + その他資産(other_asset) から合計(property)をサーバ側でも補完
             //   - JS未発火で property が空でも確実に保存されるようにする
             // --------------------------------------------------------
-            $cashK     = $this->toThousand($req->input("cash.$i"));          // 千円
-            $otherK    = $this->toThousand($req->input("other_asset.$i"));   // 千円（フォーム上の入力）
-            $propertyK = $this->toThousand($req->input("property.$i"));      // 千円（readonly だが送信される想定）
-            
+              $cashK           = $this->toThousand($req->input("cash.$i"));                  // 千円
+              $otherK          = $this->signedThousandOrNull($req->input("other_asset.$i")); // 千円（負数許可）
+              $postedPropertyK = $this->signedThousandOrNull($req->input("property.$i"));    // 千円（readonly）
+              $propertyK       = ($cashK !== null || $otherK !== null)
+                  ? (int)($cashK ?? 0) + (int)($otherK ?? 0)
+                  : $postedPropertyK;
+
+            if ($propertyK === null && ($cashK !== null || $otherK !== null)) {
+                $propertyK = (int)($cashK ?? 0) + (int)($otherK ?? 0);
+            }
+
             
 
             // --------------------------------------------------------
@@ -1245,6 +1269,36 @@ Log::debug('PDF selected pages in makeInputContext', [
         if ($v === null || $v === '') return null;
         return (int)preg_replace('/[^\d]/', '', (string)$v);
     }
+
+
+      private function signedThousandOrNull($v): ?int
+      {
+          if ($v === null || $v === '') {
+              return null;
+          }
+
+          $s = mb_convert_kana((string)$v, 'n', 'UTF-8');
+          $s = preg_replace('/[，,]/u', '', $s);
+          $s = preg_replace(
+              '/^[\-\x{2212}\x{30FC}\x{FF0D}\x{2010}\x{2011}\x{2012}\x{2013}\x{2014}\x{2015}\x{FE63}\x{FF70}]+/u',
+              '-',
+              $s
+          );
+
+
+
+          if ($s === '' || $s === '-' || $s === '+') {
+              return null;
+          }
+
+          $negative = str_starts_with($s, '-');
+          $digits   = preg_replace('/[^\d]/u', '', $s);
+
+          return $digits === '' ? null : ($negative ? -((int)$digits) : (int)$digits);
+      }    
+
+
+
     private function percentOrNull($v): ?float
     {
         if ($v === null || $v === '') return null;
@@ -3528,10 +3582,32 @@ if ($i == 1){
         ]);
         */
 
-        $this->storeProposalHeaderAndFamily($data->id, $request);
-        
-        $this->touchDataUpdatedAt((int) $data->id);        
-    
+        try {
+            $this->storeProposalHeaderAndFamily($data->id, $request);
+            $this->touchDataUpdatedAt((int) $data->id);
+        } catch (\Throwable $e) {
+            if ($request->expectsJson() || $request->ajax()) {
+                $payload = [
+                    'success' => false,
+                    'message' => '家族構成とヘッダの保存に失敗しました。',
+                ];
+
+                if (config('app.debug')) {
+                    $payload['debug'] = [
+                        'exception' => get_class($e),
+                        'message'   => $e->getMessage(),
+                        'file'      => $e->getFile(),
+                        'line'      => $e->getLine(),
+                    ];
+                }
+
+                return response()->json($payload, 422);
+            }
+
+            return back()->withErrors('家族構成とヘッダの保存に失敗しました。')->withInput();
+        }
+
+
         if ($request->expectsJson() || $request->ajax()) {
             return response()->json(['success' => true]);
         }
@@ -4007,8 +4083,12 @@ Log::debug('[FG DEBUG] set_tax20 full request', [
             $civilBunbo       = $this->strOrNull($row['civil_share_bunbo'] ?? null);
             $twentyPercent    = (int)((bool)($row['twenty_percent_add'] ?? ($row['surcharge_twenty_percent'] ?? 0)));
             $tokureiZouyo     = (int)((bool)($row['tokurei_zouyo'] ?? 0));
-            $propertyThousand = $this->toThousand($row['property'] ?? ($row['property_thousand'] ?? null));
-            $cashThousand     = $this->toThousand($row['cash'] ?? ($row['cash_thousand'] ?? null));
+            $cashThousand        = $this->toThousand($row['cash'] ?? ($row['cash_thousand'] ?? null));
+            $otherThousand       = $this->signedThousandOrNull($row['other_asset'] ?? null);
+            $propertyRawThousand = $this->signedThousandOrNull($row['property'] ?? ($row['property_thousand'] ?? null));
+            $propertyThousand    = ($cashThousand !== null || $otherThousand !== null)
+                  ? (int)($cashThousand ?? 0) + (int)($otherThousand ?? 0)
+                  : $propertyRawThousand;
 
             $heirCategory = array_key_exists('heir_category', $row)
                 ? $this->intOrNull($row['heir_category'])

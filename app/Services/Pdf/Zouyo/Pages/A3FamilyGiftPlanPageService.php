@@ -10,6 +10,7 @@ use App\Models\ProposalHeader;
 use App\Models\ProposalFamilyMember;
 use App\Services\Pdf\Zouyo\ZouyoPdfPageInterface;
 use App\Services\Pdf\Zouyo\Pages\Support\A3InheritanceTaxTableDataBuilder;
+use Illuminate\Support\Facades\Schema;
 use TCPDF;
 
 /**
@@ -19,8 +20,15 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
 {
     public function render(TCPDF $pdf, array $payload): void
     {
+
+        $dataId = (int)($payload['data_id'] ?? 0);
+        $assetInputMode = $this->resolveAssetInputMode($payload, $dataId);
+
         // テンプレートPDFのパス
-        $templatePath = resource_path('/views/pdf/A3_03_pr_kazokukosei.pdf');
+        $templateFile = $assetInputMode === 'combined'
+            ? 'A3_03_pr_kazokukosei_sonota.pdf'
+            : 'A3_03_pr_kazokukosei.pdf';
+        $templatePath = resource_path('/views/pdf/' . $templateFile);
 
         if (!file_exists($templatePath)) {
             throw new \RuntimeException("Family template not found: {$templatePath}");
@@ -81,6 +89,29 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         ];
 
 
+        // 「金融資産を分けずに入力する」用テンプレート
+        if ($assetInputMode === 'combined') {
+
+                $colX = [
+                    'name'         => 50.0,
+                    'gender'       => 85.0,
+                    'rel'          => 96.0,
+                    'yousi'        => 120.5,
+                    'souzoku'      => 148.5,
+                    'civil_share'  => 181.5,
+                    'houtei_share' => 197.7,            
+                    'birth_year'   => 217.8,
+                    'birth_month'  => 227.6,
+                    'birth_day'    => 235.3,
+                    'age'          => 249.0,
+                    'cash'         => 250.0,
+                    'prop'         => 265.0,
+                    'ksum'         => 280.0,
+                ];
+
+
+        }
+
         /**
          * 家族構成表の印字位置微調整
          * - 現テンプレートでは全体に少し左上へ寄っているため、
@@ -89,6 +120,13 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
          */
         $familyTableOffsetX = 15.5;
         $familyTableOffsetY =  4.2;
+
+        // 「金融資産を分けずに入力する」用テンプレートは
+        // 通常版より家族表の印字基準が少し右寄り。
+        if ($assetInputMode === 'combined') {
+            $familyTableOffsetX = 22.5;
+            $familyTableOffsetY =  4.2;
+        }
 
         foreach ($colX as $key => $value) {
             $colX[$key] = $value + $familyTableOffsetX;
@@ -233,19 +271,22 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
             }
 
             $cash = $row['cash'] ?? null;
-            if ($hasName && $cash !== null) {
+            if ($hasName && $assetInputMode !== 'combined' && $cash !== null) {
                 $x = $colX['cash'];
                 $pdf->MultiCell($colW['cash'], 10, number_format((int)$cash) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
             }
 
-            $prop = ($row['property'] ?? 0) - ($row['cash'] ?? 0);
+            $propertyTotal = $row['property'] ?? null;
+            $prop = $assetInputMode === 'combined'
+                ? $propertyTotal
+                : (($row['property'] ?? 0) - ($row['cash'] ?? 0));
             if ($hasName && $prop !== null) {
                 $x = $colX['prop'];
                 $pdf->MultiCell($colW['prop'], 10, number_format((int)$prop) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
             }
 
-            $ksum = ($row['property'] ?? 0);
-            if ($hasName && $prop !== null) {                
+            $ksum = $propertyTotal;
+            if ($hasName && $assetInputMode !== 'combined' && $ksum !== null) {
                 $x = $colX['ksum'];
                 $pdf->MultiCell($colW['ksum'], 10, number_format((int)$ksum) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
             }
@@ -255,27 +296,39 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
 
         // 合計行
         $totalCash = $header['cash_110'] ?? null;
-        $totalProp = ($header['property_110'] ?? 0) - ($header['cash_110'] ?? 0);
-        $totaksum  = $header['property_110'] ?? null;
+        $totalProperty = $header['property_110'] ?? null;
+        $totalProp = $assetInputMode === 'combined'
+            ? $totalProperty
+            : (($header['property_110'] ?? 0) - ($header['cash_110'] ?? 0));
+        $totaksum  = $totalProperty;
 
-        if ($totalProp !== null || $totalCash !== null) {
+
+        if ($totalProp !== null || $totalCash !== null || $totaksum !== null) {
             $y = $startY + 10 * $rowHeight;
 
-            if ($totalCash !== null) {
+            // sonota テンプレートでは合計行だけ少し上に補正しないと
+            // 「合計」ラベルと金額が重なりやすい
+            $combinedTotalOffsetY = $assetInputMode === 'combined' ? -0.6 : 0.0;
+
+            if ($assetInputMode !== 'combined' && $totalCash !== null) {
                 $x = $colX['cash'];
-                $pdf->MultiCell($colW['cash'], 10, number_format((int)$totalCash) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
-            }
+                $pdf->MultiCell($colW['cash'], 10, number_format((int)$totalCash) . ' 千円', $wakusen, 'R', 0, 0, $x, $y + $combinedTotalOffsetY);
+             }
+ 
+             if ($totalProp !== null) {
+                 $x = $colX['prop'];
+                $pdf->MultiCell($colW['prop'], 10, number_format((int)$totalProp) . ' 千円', $wakusen, 'R', 0, 0, $x, $y + $combinedTotalOffsetY);
+             }
+ 
+             if ($assetInputMode !== 'combined' && $totaksum !== null) {
+                 $x = $colX['ksum'];
+                $pdf->MultiCell($colW['ksum'], 10, number_format((int)$totaksum) . ' 千円', $wakusen, 'R', 0, 0, $x, $y + $combinedTotalOffsetY);
+             }
+         }
 
-            if ($totalProp !== null) {
-                $x = $colX['prop'];
-                $pdf->MultiCell($colW['prop'], 10, number_format((int)$totalProp) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
-            }
 
-            if ($totaksum !== null) {
-                $x = $colX['ksum'];
-                $pdf->MultiCell($colW['ksum'], 10, number_format((int)$totaksum) . ' 千円', $wakusen, 'R', 0, 0, $x, $y);
-            }
-        }
+
+        
 
         // ▼ STEP3 削除予定
         //    「各人別贈与プラン」は A3KakuzoyoPlanPageService へ移設する。
@@ -1271,5 +1324,28 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         };
     }
 
+
+
+    private function resolveAssetInputMode(array $payload, int $dataId): string
+    {
+        $payloadMode = (string)($payload['header']['asset_input_mode'] ?? ($payload['asset_input_mode'] ?? ''));
+        if (in_array($payloadMode, ['split', 'combined'], true)) {
+            return $payloadMode;
+        }
+
+        $table = (new ProposalHeader())->getTable();
+        if ($dataId > 0 && Schema::hasColumn($table, 'asset_input_mode')) {
+            $dbMode = (string)(ProposalHeader::query()
+                ->where('data_id', $dataId)
+                ->value('asset_input_mode') ?? '');
+
+            if (in_array($dbMode, ['split', 'combined'], true)) {
+                return $dbMode;
+            }
+        }
+
+        return 'split';
+    }    
+    
 }
 
