@@ -2953,6 +2953,13 @@ class ZouyotaxCalc
         $perCal = [];
         $perSet = [];
         $per    = [];
+        
+        // ★暦年贈与の「3年超・控除前生額（千円）」を保持
+        //   withVirtual 側で future の 3年超分と合算し、
+        //   100万円控除を recipient ごとに1回だけへ補正するために使う
+        $pastCalendarOver3RawKByNo = [];
+
+
         for ($i=2; $i<=10; $i++) {
             $perCal[$i] = 0;
             $perSet[$i] = 0;
@@ -2979,9 +2986,9 @@ class ZouyotaxCalc
         $giftBasicDeductionK = $this->resolveGiftBasicDeductionK($payload);
         
 
-        // 暦年：受贈者×年ごとに「3年以内」と「3年超」の金額を別管理する（単位：千円）
-        $perCalWithin3K = []; // [recipient_no][gift_year] => int
-        $perCalOver3K   = []; // [recipient_no][gift_year] => int
+        // 暦年：受贈者ごとに「3年以内」と「3年超」の金額を別管理する（単位：千円）
+        $perCalWithin3K = []; // [recipient_no] => int
+        $perCalOver3K   = []; // [recipient_no] => int
 
 
 // ★暦年課税の過去分は PastGiftCalendarEntry を直接読む
@@ -3014,53 +3021,61 @@ foreach ($calendarRows as $r) {
         continue;
     }
 
-    // 3年以内 / 3年超 を分けて受贈者×年で保持
-    if ($giftDate >= $threeYearsAgo) {
-        $perCalWithin3K[$recipientNo][$giftYear] =
-            (int)($perCalWithin3K[$recipientNo][$giftYear] ?? 0) + $amountK;
-    } else {
-        $perCalOver3K[$recipientNo][$giftYear] =
-            (int)($perCalOver3K[$recipientNo][$giftYear] ?? 0) + $amountK;
+
+    // ★ lookback 範囲外は算入しない
+    if ($giftDate < $rangeStart || $giftDate > $rangeEnd) {
+        continue;
     }
-}
+
+    // 3年以内 / 3年超 を受贈者単位で保持
+     if ($giftDate >= $threeYearsAgo) {
+        $perCalWithin3K[$recipientNo] =
+            (int)($perCalWithin3K[$recipientNo] ?? 0) + $amountK;
+        if (!isset($pastCalendarOver3RawKByNo[$recipientNo])) {
+            $pastCalendarOver3RawKByNo[$recipientNo] = 0;
+        }
+     } else {
+        $perCalOver3K[$recipientNo] =
+            (int)($perCalOver3K[$recipientNo] ?? 0) + $amountK;
+        $pastCalendarOver3RawKByNo[$recipientNo] =
+            (int)($pastCalendarOver3RawKByNo[$recipientNo] ?? 0) + $amountK;
+     }
+
+
+ }
+    
 
 // ★相続人別（受贈者別）暦年加算（千円）を確定
 //   - 3年以内：全額算入
-//   - 3年超   ：2027-01-02以降死亡のときのみ「受贈者×年ごとに100万円控除後」の超過分のみ算入
+//   - 3年超   ：2027-01-02以降死亡のときのみ
+//               「受贈者ごとの3年超合計」に対して100万円控除を1回だけ適用
 $calendarPerNoK = [];
 for ($no = 2; $no <= 10; $no++) {
     $calendarPerNoK[$no] = 0;
 
-    // 3年以内分
-    foreach (($perCalWithin3K[$no] ?? []) as $giftYear => $sumK) {
-        $calendarPerNoK[$no] += max(0, (int)$sumK);
-    }
+    $within3K = max(0, (int)($perCalWithin3K[$no] ?? 0));
+    $over3K   = max(0, (int)($perCalOver3K[$no]   ?? 0));
 
-    // 3年超分
-    foreach (($perCalOver3K[$no] ?? []) as $giftYear => $sumK) {
-        $sumK = max(0, (int)$sumK);
-        if ($sumK <= 0) {
-            continue;
-        }
+    $calendarPerNoK[$no] += $within3K;
 
+    if ($over3K > 0) {
         if ($useOneMillionExemption) {
-            // 100万円 = 1,000千円
-            $sumK = max(0, $sumK - 1000);
+            // 100万円 = 1,000千円（受贈者ごとに1回だけ）
+            $over3K = max(0, $over3K - 1000);
         }
+        $calendarPerNoK[$no] += $over3K;
 
-        $calendarPerNoK[$no] += $sumK;
     }
+
+        Log::info('2026.04.20 000002 ', [
+            '$no'       => $no,
+            '$within3K'    => $within3K,
+            '$calendarPerNoK[$no]'             => $calendarPerNoK[$no],
+            '$over3K'   => $over3K,
+        ]);
+
 }
 
-                /*
-                Log::info('2026.01.19 400001 [ZouyotaxCalc][past_gifts_included]', [
-                    'data_id'       => $dataId,
-                    'death_date'    => $deathDate->format('Y-m-d'),
-                    't'             => $t,
-                    'zouyo_kasan'   => $zouyo_kasan,
-                    'zouyo_koujo'   => $zouyo_koujo,
-                ]);
-                */
                 
         // ============================================================
         // 暦年課税（相続税の生前贈与加算）を相続人別に反映（円）
@@ -3171,6 +3186,17 @@ for ($no = 2; $no <= 10; $no++) {
             'calendar_total_yen'    => $totalCal,
             'settlement_total_yen'  => $totalSet,
             'calendar_per_idx'      => $perCal,
+            
+            // ★withVirtual 側で past + future の 3年超合算後に
+            //   100万円控除を1回だけへ補正するための生額
+            //   単位は千円のまま返す
+            'calendar_over3_raw_k_per_idx' => $pastCalendarOver3RawKByNo,
+            'calendar_over3_raw_total_k'   => array_sum(array_map(
+                'intval',
+                $pastCalendarOver3RawKByNo
+            )),
+
+
             'settlement_per_idx'    => $perSet,
         ];
     }
@@ -3291,37 +3317,28 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
 ): array {
     
     // ============================================================
-    // ★重要：past（過去贈与）の算入範囲は projection の deathDate でスライドさせない
-    //  - t が進むほど lookback が前にズレて 2022 などが落ち、inclCal が不自然に減る
-    //  - あなたの期待値は「past は t=0 基準で固定」「将来分だけ virtual で増える」
-    // したがって、virtual のキーから t=0 の deathDate（最小キー）を取り出し、
-    // past 集計はその基準日で実施する。
+    // ★重要：
+    // 暦年贈与の「過去分」は after projection でも固定しない。
+    // 各年の死亡日($deathDate)で毎年再評価し、
+    // その結果に virtual の将来分を加算する。
+    //
+    // ここを固定すると、現時点の過去分 52,582千円 が
+    // 2年後以降も残り続けて page6 のような
+    //   92,582 → 92,582 → 91,582 → ... → 52,582
+    // の誤りになる。
+    //
+    // 精算贈与は全件算入で deathDate に依存しないため、
+    // この修正で精算側は壊れない。
     // ============================================================
-    $baseDeathDateForPast = $pastBaseDeathDate instanceof \DateTimeImmutable
-        ? $pastBaseDeathDate
-        : $this->resolvePastGiftsBaseDeathDateFromVirtual($virtual, $deathDate);
+    $base = $this->calcPastGiftsIncludedInEstateByRecipient(
+         $dataId,
+         $deathDate,
+         $payload,
+         $taxableAcquirerIdxList,
+         $heirs,
+         $t
+    );
 
-
-
-
-
-
-    // まず「過去贈与のみ」の集計結果を取得（暦年/精算の内訳付き）
-
-    /*
-    Log::debug("2026.01.27 1000000-4", [
-        'baseDeathDateForPast' => $baseDeathDateForPast,
-    ]);
-    */
-
-        $base = $this->calcPastGiftsIncludedInEstateByRecipient(
-             $dataId,
-             $baseDeathDateForPast,
-             $payload,
-             $taxableAcquirerIdxList,
-             $heirs,
-             $t
-        );
 
 
     // ★暦年のみ「課税価格の取得がある人」フィルタ（精算は全員対象）
@@ -3345,6 +3362,13 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
 
     $totalCal = (int)($base['calendar_total_yen'] ?? 0);
     $totalSet = (int)($base['settlement_total_yen'] ?? 0);
+    
+    // ★past 側の「3年超・控除前生額（千円）」
+    $pastCalendarOver3RawKByNo = [];
+    foreach ((array)($base['calendar_over3_raw_k_per_idx'] ?? []) as $no => $rawK) {
+        $pastCalendarOver3RawKByNo[(int)$no] = max(0, (int)$rawK);
+    }
+    
 
     // 全受贈者分の器を作っておく
     for ($i = 2; $i <= 10; $i++) {
@@ -3357,6 +3381,8 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
     $v = $virtual[$deathDate->format('Y-m-d')] ?? [
         'calendar_included' => [],
         'settlement_all'    => [],
+        // ★future 側の「3年超・控除前生額（千円）」
+        'calendar_over3_raw_k' => [],        
     ];
 
     // 変数の初期化
@@ -3402,6 +3428,48 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
         
     }
 
+    // ============================================================
+    // ★重要：
+    // 暦年贈与の「3年超100万円控除」は recipient ごとに1回だけ。
+    //
+    // 現状は
+    //   - past 側で 1回控除
+    //   - future 側でも 1回控除
+    // となるため、
+    // past と future の両方に 3年超分がある recipient で 1,000千円不足する。
+    //
+    // そこで、past+future の raw 3年超合計に対して
+    // 100万円控除を1回だけ適用した場合との差額を補正加算する。
+    // ============================================================
+    $useOneMillionExemption = ($deathDate >= new \DateTimeImmutable('2027-01-02'));
+    if ($useOneMillionExemption) {
+        foreach (range(2, 10) as $idx) {
+            $pastRawK   = max(0, (int)($pastCalendarOver3RawKByNo[$idx] ?? 0));
+            $futureRawK = max(0, (int)(($v['calendar_over3_raw_k'][$idx] ?? 0)));
+
+            if ($pastRawK <= 0 || $futureRawK <= 0) {
+                continue;
+            }
+
+            $currentSeparatedK =
+                max(0, $pastRawK - 1000)
+              + max(0, $futureRawK - 1000);
+
+            $combinedOnceK =
+                max(0, ($pastRawK + $futureRawK) - 1000);
+
+            $adjustK = $combinedOnceK - $currentSeparatedK;
+            if ($adjustK <= 0) {
+                continue;
+            }
+
+            $adjustYen = $this->toYen($adjustK);
+            $perCal[$idx] += $adjustYen;
+            $per[$idx]    += $adjustYen;
+        }
+    }
+
+
     // 精算分：全件算入（settlement_all）を精算側に加算（★取得者フィルタしない）
     foreach (($v['settlement_all'] ?? []) as $no => $yen) {
         $idx = (int)$no;
@@ -3422,16 +3490,43 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
         
     }
 
-    // 合算（暦年＋精算）
-    $total = 0;
+    // ============================================================
+    // ★重要：
+    // page6 の summary（incl_calendar_yen / incl_settlement_yen）は
+    // ここで返す total 値をそのまま使う。
+    //
+    // そのため totalCal / totalSet / total は、
+    // base の持ち回り値を信用せず、最終的な per 配列から必ず再集計して確定する。
+    // これにより、各人別明細ページの合計と page6 の総額が一致する。
+    // ============================================================
+    $totalCal = 0;
+    $totalSet = 0;
+    $total    = 0;
+
     for ($i = 2; $i <= 10; $i++) {
-        $total += (int)($per[$i] ?? 0);
+        $cal = (int)($perCal[$i] ?? 0);
+        $set = (int)($perSet[$i] ?? 0);
+        $sum = (int)($per[$i] ?? ($cal + $set));
+
+        $totalCal += $cal;
+        $totalSet += $set;
+        $total    += $sum;
+
+
+     
+        Log::debug('2026.04.20 00001', [
+            '$cal'           => $cal,
+            '$set'           => $set,
+            '$sum'           => $sum,
+            '$totalCal'      => $totalCal,
+            '$totalSet'      => $totalSet,
+            '$total'         => $total,
+        ]);
+
+
+
     }
 
-    /*
-    // 最後に total と giftInclFixed の最終結果を確認
-    Log::debug("Final total: {$total}, Final giftInclFixed: {$giftInclFixed}");
-    */
 
     return [
         'total_yen' => $total,
@@ -5678,6 +5773,7 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
         $idx = [$key => [
             'calendar_included' => [], // recipient_no => yen（lookback内）
             'calendar_tax'      => [], // recipient_no => yen（税額控除）
+            'calendar_over3_raw_k' => [], // recipient_no => 千円（3年超・控除前生額）            
             'settlement_all'    => [], // recipient_no => yen（全件算入）
             'settlement_tax'    => [], // recipient_no => yen（税額控除）
             'cash_out_total'    => 0,  // 円（現金流出）
@@ -5736,6 +5832,13 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
 
         // ★JS(future_zouyo.blade)に合わせる：死亡年条件なしで常に控除対象（3年超に対して）
         $useOneMillionExemption = true;
+        
+ 
+        // ★将来暦年贈与の算入額は、受贈者ごとの
+        //   「3年以内合計」「3年超合計」を先に集計してから確定する
+        $futureCalendarWithin3KByRecipient = [];
+        $futureCalendarOver3KByRecipient   = [];
+        
 
         /**
          * ============================================================
@@ -5901,20 +6004,14 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
             }
 
 
-            // ============================================================
-            // ★暦年贈与加算額（将来分）
-            //   - 3年以内：全額算入
-            //   - 3年超  ：100万円控除後の超過分のみ算入
-            // ※ 受贈者の過去贈与有無で分岐させない
-            // ============================================================
             if ($giftDate >= $threeYearsAgo) {
-                $includeK = $amtK;
-            } elseif ($useOneMillionExemption) {
-                $includeK = max(0, $amtK - 1000);                
+                $futureCalendarWithin3KByRecipient[$no]
+                    = (int)($futureCalendarWithin3KByRecipient[$no] ?? 0) + $amtK;
             } else {
-                $includeK = $amtK;
+                $futureCalendarOver3KByRecipient[$no]
+                    = (int)($futureCalendarOver3KByRecipient[$no] ?? 0) + $amtK;
             }
-
+             
 
                 /*
                 Log::debug('2026.01.20 6999999 [ZouyoTaxCalc] calendar_included', [
@@ -5924,11 +6021,6 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
                 */
 
 
-            // 暦年贈与算入額（円）
-            $idx[$key]['calendar_included'][$no]
-                = ($idx[$key]['calendar_included'][$no] ?? 0)
-                + $this->toYen($includeK);
-            
                 /*
                 Log::debug('2026.01.20 700001 [ZouyoTaxCalc] calendar_included', [
                     'no' => $no,
@@ -5943,6 +6035,41 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
                 + $this->toYen($taxK);
         }
 
+
+
+        // ★将来暦年贈与の生前贈与加算額を受贈者ごとに確定
+        //   - 3年以内：全額
+        //   - 3年超  ：受贈者ごとの3年超合計に100万円控除を1回だけ適用
+        for ($no = 2; $no <= 10; $no++) {
+            $within3K = max(0, (int)($futureCalendarWithin3KByRecipient[$no] ?? 0));
+            $over3K   = max(0, (int)($futureCalendarOver3KByRecipient[$no]   ?? 0));
+            $rawOver3K = $over3K;            
+
+            $includeK = $within3K;
+            if ($over3K > 0) {
+                if ($useOneMillionExemption) {
+                    $over3K = max(0, $over3K - 1000);
+                }
+                
+                $idx[$key]['calendar_over3_raw_k'][$no] = $rawOver3K;                
+    
+                $includeK += $over3K;
+            }
+
+            if ($includeK <= 0) {
+                continue;
+            }
+
+            $idx[$key]['calendar_included'][$no]
+                = (int)($idx[$key]['calendar_included'][$no] ?? 0)
+                + $this->toYen($includeK);
+                
+
+            if (!isset($idx[$key]['calendar_over3_raw_k'][$no])) {
+                $idx[$key]['calendar_over3_raw_k'][$no] = 0;
+            }
+
+        }
         
         // 精算（現金流出は全員 / 算入は全員 / 税額控除は別途ロジックで扱う）
         $futureSettlementAmountsByRecipientYear = [];
