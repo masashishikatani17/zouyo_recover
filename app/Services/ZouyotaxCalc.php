@@ -3286,7 +3286,8 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
      array $virtual, // buildVirtualGiftsIndex() の戻り
      array $payload,
      array $taxableAcquirerIdxList,
-     array $heirs
+     array $heirs,
+     ?\DateTimeImmutable $pastBaseDeathDate = null
 ): array {
     
     // ============================================================
@@ -3296,7 +3297,14 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
     // したがって、virtual のキーから t=0 の deathDate（最小キー）を取り出し、
     // past 集計はその基準日で実施する。
     // ============================================================
-    $baseDeathDateForPast = $this->resolvePastGiftsBaseDeathDateFromVirtual($virtual, $deathDate);
+    $baseDeathDateForPast = $pastBaseDeathDate instanceof \DateTimeImmutable
+        ? $pastBaseDeathDate
+        : $this->resolvePastGiftsBaseDeathDateFromVirtual($virtual, $deathDate);
+
+
+
+
+
 
     // まず「過去贈与のみ」の集計結果を取得（暦年/精算の内訳付き）
 
@@ -3317,8 +3325,14 @@ private function calcPastGiftsIncludedInEstateByRecipientWithVirtual(
 
 
     // ★暦年のみ「課税価格の取得がある人」フィルタ（精算は全員対象）
+    //   - まず taxableAcquirerIdxList を優先
+    //   - 空なら従来どおり heirIdxList にフォールバック
+    $calendarTargetIdxList = !empty($taxableAcquirerIdxList)
+        ? $taxableAcquirerIdxList
+        : $heirIdxList;
+
     $targetSet = [];
-    foreach ($heirIdxList as $v) {
+    foreach ($calendarTargetIdxList as $v) {
         $i = (int)$v;
         if ($i >= 2 && $i <= 10) $targetSet[$i] = true;
     }
@@ -4231,7 +4245,8 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
         // ★ after_virtual のときだけ「贈与後遺産（=減額後の遺産）」を明示的に渡す（分割対象を減額後へ統一）
         ?int $estateAfterYenForAlloc = null,
         ?array $giftInclOverride = null,
-        ?array $giftTaxCreditsOverride = null
+        ?array $giftTaxCreditsOverride = null,
+        ?\DateTimeImmutable $pastBaseDeathDate = null
 
     ): array {
 
@@ -4295,7 +4310,8 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
                 $virtual,
                 $payload,
                 $taxableAcquirerIdxList,
-                $heirs
+                $heirs,
+                $pastBaseDeathDate
             );
         
             
@@ -5983,17 +5999,15 @@ private function calcSettlementGiftTaxesByRecipient(int $dataId): array
             $idx[$key]['cash_out_total'] += max(0, $yen);
 
             
-             // ★精算：現金流出は全員分
-             // ★精算：算入・税額控除も「精算課税贈与を受けた人は全員」対象（課税価格取得の有無は問わない）
-             $giftYear = (int)($r['y'] ?? 0);
-             $amtK     = (int)($r['amount_thousand'] ?? 0);
-             if ($giftYear > 0 && $amtK > 0) {
-                 if (!isset($futureSettlementAmountsByRecipientYear[$no])) {
-                     $futureSettlementAmountsByRecipientYear[$no] = [];
-                 }
-                 $futureSettlementAmountsByRecipientYear[$no][$giftYear]
-                     = (int)($futureSettlementAmountsByRecipientYear[$no][$giftYear] ?? 0) + $amtK;
-             }
+            $giftYear = (int)($r['y'] ?? 0);
+            $amtK     = (int)($r['amount_thousand'] ?? 0);
+            if ($giftYear > 0 && $amtK > 0) {
+                if (!isset($futureSettlementAmountsByRecipientYear[$no])) {
+                    $futureSettlementAmountsByRecipientYear[$no] = [];
+                }
+                $futureSettlementAmountsByRecipientYear[$no][$giftYear]
+                    = (int)($futureSettlementAmountsByRecipientYear[$no][$giftYear] ?? 0) + $amtK;
+            }
         }
 
         /*
@@ -6921,6 +6935,17 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
         // ★ 贈与後（控除後）の遺産：金融/その他の内訳付き
         $parts = $this->applyFuturePlanToEstateParts($propertyNonCashYen, $cashGrown, $virtual, $deathDateT);
         $estateAfter = (int)$parts['estate_after_yen'];
+        
+        // ============================================================
+        // ★ after projection の「past 基準日」を明示的に固定する
+        //   - t=1 は実際の相続開始日
+        //   - t=2 以降も past は t=1 基準のまま固定し、
+        //     それ以降の増分は virtual（将来贈与）だけで積み上げる
+        // ============================================================
+        $pastBaseDeathDateForAfter = (clone $deathDateT)->modify(
+            '-' . max(0, $t - 1) . ' year'
+        );
+        
 
         // 以降は computeForGivenEstateAndDate に「課税価格（kazei_price_yen）」を
         // 関数内で（estateAfter + 算入額）として組み立てる。
@@ -6930,7 +6955,9 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
             $estateAfter, $deathDateT, $brackets,
             'after_virtual', $virtual,
             // ★分割対象は「贈与後遺産（減額後）」を明示指定
-            $estateAfter
+            $estateAfter,
+            null, null, $pastBaseDeathDateForAfter
+
         );
 
 
