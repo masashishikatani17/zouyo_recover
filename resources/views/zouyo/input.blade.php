@@ -1288,9 +1288,20 @@ document.addEventListener('DOMContentLoaded', function() {
         nodes.forEach((el) => {
           const name = el.getAttribute('name');
           if (!name) return;
-          // disabled は送らない／checkbox・radio の未チェックは送らない
+
+          // disabled は送らない
           if (el.disabled) return;
-          if ((el.type === 'checkbox' || el.type === 'radio') && !el.checked) return;
+
+          // ★ 修正:
+          //   input04 の checkbox は hidden(0) + checkbox(1) の組み合わせになっている。
+          //   従来ロジックだと hidden の 0 が先に入り、checked の 1 が上書きできず、
+          //   [戻る]/[マスター]/[計算開始] 前保存で常に 0 になっていた。
+          //   そのため checkbox / radio は必ず現在状態を 1/0 で明示セットする。
+          if (el.type === 'checkbox' || el.type === 'radio') {
+            fd.set(name, el.checked ? (el.value || '1') : '0');
+            return;
+          }
+
           const val = (el.value ?? '');
           // ★ 空は送らない（既存値の消し込み防止）
           if (val === '') return;
@@ -1301,6 +1312,16 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
 
+        // ★ 保険:
+        //   基礎控除額修正チェックは最後に現在状態を必ず明示反映する
+        ['calendar_tax_override_enabled', 'settlement_basic_override_enabled'].forEach((name) => {
+          const checkbox = pane.querySelector(`input[type="checkbox"][name="${name}"]`);
+          if (checkbox) {
+            fd.set(name, checkbox.checked ? '1' : '0');
+          }
+        });
+ 
+ 
         // ---- ① 受贈者番号を必ず future_recipient_no で送る ----
         const rnSel = pane.querySelector('#future-recipient-no');
         const rnVal = rnSel?.value ?? '';
@@ -1323,7 +1344,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const KEYS = [
           'gift_year','age',
           'cal_amount','cal_basic','cal_after_basic','cal_tax','cal_cum',
+          'calendar_basic_override_thousand',          
           'set_amount','set_basic110','set_after_basic','set_after_25m','set_tax20','set_cum',
+          'settlement_basic_override_thousand',          
           'gift_month','gift_day',
         ];
         // plan[key][i] または key[i] を探して、最終的に key[i] を必ず積む
@@ -1728,7 +1751,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // 行キー一覧（暦年/精算/贈与日）
     const KEYS = [
       'cal_amount','cal_basic','cal_after_basic','cal_tax','cal_cum',
+      'calendar_basic_override_thousand',      
       'set_amount','set_basic110','set_after_basic','set_after_25m','set_tax20','set_cum',
+      'settlement_basic_override_thousand',      
       'gift_month','gift_day','gift_year'
     ];
 
