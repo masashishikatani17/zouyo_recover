@@ -1101,6 +1101,22 @@ const getGiftBasicDeductionKByYear = (year) => {
   return Number.isFinite(fallback) ? fallback : 0;
 };
 
+
+const isCalendarTaxOverrideEnabled = () =>
+  !!document.querySelector('input[type="checkbox"][name="calendar_tax_override_enabled"]:checked');
+
+const sumCalendarTaxOverrideK = () => {
+  let total = 0;
+  for (let i = 1; i <= 20; i++) {
+    const el = document.querySelector(`input[name="calendar_tax_override_thousand[${i}]"]`);
+    if (!el) continue;
+    total += toInt(el.value, 0);
+  }
+  return total;
+};
+
+
+
 const updateGiftBasicDeductionHeader = (baseYear) => {
   const basicK = getGiftBasicDeductionKByYear(baseYear || getFutureBaseYear());
   window.GIFT_BASIC_DEDUCTION_K = basicK;
@@ -1865,14 +1881,20 @@ document.addEventListener('DOMContentLoaded', function () {
           const pastKojoK = Number(window.__LAST_FUTURE_PAYLOAD?.rekinen?.total?.kojo ?? 0);
           let futureKojoK = 0;
         
-          // 将来行（1〜20）の贈与税額を加算
-          const rows = getCalRows();
-          for (const i of rows) {
-            const el = document.querySelector(`input[name="cal_tax[${i}]"]`);
-            const v = el ? toInt(el.value) : 0;
-            futureKojoK += v;
+
+          if (isCalendarTaxOverrideEnabled()) {
+            // 贈与税額修正ON時は、手入力欄の合計を採用
+            futureKojoK = sumCalendarTaxOverrideK();
+          } else {
+            // OFF時は従来どおり自動計算欄 cal_tax を合計
+            const rows = getCalRows();
+            for (const i of rows) {
+              const el = document.querySelector(`input[name="cal_tax[${i}]"]`);
+              const v = el ? toInt(el.value) : 0;
+              futureKojoK += v;
+            }
           }
-        
+
           // 合計を行110（合計行）に出力
           const totalKojo = pastKojoK + futureKojoK;
           setK('cal_tax', 110, totalKojo);
@@ -3248,6 +3270,14 @@ document.addEventListener('DOMContentLoaded', () => {
  
 });
 
+
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (!(t instanceof HTMLInputElement)) return;
+  if (!/^\s*calendar_tax_override_thousand\[\d+\]\s*$/.test(t.name)) return;
+
+  try { updateTopCounters && updateTopCounters(); } catch (_) {}
+});
 
 /**
  * ============================================================
