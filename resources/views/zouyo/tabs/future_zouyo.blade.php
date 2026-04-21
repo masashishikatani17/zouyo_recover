@@ -282,6 +282,12 @@
     color: #6b7280 !important;
   }
   
+  
+  .future-basic-override-col-hidden {
+    display: none !important;
+  }
+  
+  
    /* ※ を上寄せにする */
     .va-top {
       vertical-align: top !important;
@@ -582,13 +588,13 @@
         <col style="40px;">
         <col style="70px;">
         <col style="70px;">
+        <col style="70px;" class="future-calendar-basic-override-col">
         <col style="70px;">
         <col style="70px;">
         <col style="70px;">
         <col style="70px;">
         <col style="70px;">
-        <col style="70px;">
-        <col style="70px;">
+        <col style="70px;" class="future-settlement-basic-override-col">
         <col style="70px;">
         <col style="70px;">
         <col style="70px;">
@@ -654,8 +660,8 @@
       </colgroup>
         <tr class="bg-blue">
           <th colspan="3"></th>
-          <th colspan="6">暦年贈与</th>
-          <th colspan="7">精算課税贈与</th>
+          <th id="future-calendar-group-header" colspan="6">暦年贈与</th>
+          <th id="future-settlement-group-header" colspan="7">精算課税贈与</th>          
         </tr>
         <tr class="bg-grey">
          <th>回数</th>   {{-- 幅は CSS (#future-gift-table ...) が担当 --}}
@@ -663,13 +669,13 @@
           <th>年齢</th>
           <th class="future-edit-col-header">贈与額</th>
           <th>基礎控除</th>
-          <th class="future-edit-col-header">修正基礎<br>控除額</th>          
+          <th class="future-edit-col-header future-calendar-basic-override-cell">修正基礎<br>控除額</th>          
           <th>基礎控除後</th>
           <th id="cal-tax-header">(一般税率)<br>贈与税額</th>          
           <th>贈与加算<br>累計額</th>
           <th class="future-edit-col-header">贈与額</th>
           <th id="set-basic-deduction-header">{{ number_format($giftBasicDeductionK / 10) }}万円<br>基礎控除</th>
-          <th class="future-edit-col-header">修正基礎<br>控除額</th>
+          <th class="future-edit-col-header future-settlement-basic-override-cell">修正基礎<br>控除額</th>
           <th>基礎控除後</th>
           <th>2500万円<br>特別控除後</th>
           <th>20%の<br>贈与税額</th>
@@ -712,8 +718,8 @@
             <input type="text" class="form-control suji7 comma decimal0" name="cal_basic[{{ $i }}]" style=" ime-mode: disabled; background-color: #f0f0f0;" readonly tabindex="-1" inputmode="numeric" value="{{ number_format($basicK) }}">
           </td>
 
-          <td class="border px-1 py-0"></td>
- 
+          <td class="border px-1 py-0 future-calendar-basic-override-cell"></td>
+
           <td class="border px-1 py-0">
             <input type="text" class="form-control suji8 comma decimal0 future-field-calc"            
                    name="cal_after_basic[{{ $i }}]" style=" ime-mode: disabled; background-color: #f0f0f0;" readonly tabindex="-1" inputmode="numeric"
@@ -753,8 +759,8 @@
                    value="{{ old('set_basic110.'.$i, isset($prefillFuture['plan']['set_basic110'][$i]) ? number_format($prefillFuture['plan']['set_basic110'][$i]) : '') }}">
           </td>
 
-          <td class="border px-1 py-0"></td>
- 
+          <td class="border px-1 py-0 future-settlement-basic-override-cell"></td>
+
           <td class="border px-1 py-0">
             <input type="text" class="form-control suji8 comma decimal0 future-field-calc"
                    name="set_after_basic[{{ $i }}]" style="ime-mode: disabled; background-color: #f0f0f0;" readonly tabindex="-1" inputmode="numeric"
@@ -835,15 +841,13 @@
             <input type="text" class="form-control suji7 comma decimal0 future-field-calc" name="cal_basic[{{ $i }}]" style=" ime-mode: disabled; background-color: #f0f0f0;" readonly tabindex="-1" inputmode="numeric" >
           </td>
 
-          <td class="border px-1 py-0">
+          <td class="border px-1 py-0 future-calendar-basic-override-cell">
             <input
               type="text"
               class="form-control suji7 comma decimal0 future-field-input future-basic-override-input-readonly"
               name="calendar_basic_override_thousand[{{ $i }}]"
               style="ime-mode: disabled;"
               inputmode="numeric"
-              tabindex="{{ $calendarBasicOverrideEnabled ? '0' : '-1' }}"
-              @readonly(!$calendarBasicOverrideEnabled)
               value="{{ old('calendar_basic_override_thousand.'.$i, isset($prefillFuture['plan']['calendar_basic_override_thousand'][$i]) ? number_format($prefillFuture['plan']['calendar_basic_override_thousand'][$i]) : '') }}"
             >
           </td>
@@ -869,15 +873,13 @@
             <input type="text" class="form-control suji7 comma decimal0 future-field-calc" name="set_basic110[{{ $i }}]" style="ime-mode: disabled; background-color: #f0f0f0;" readonly tabindex="-1" inputmode="numeric" >
           </td>
 
-          <td class="border px-1 py-0">
+          <td class="border px-1 py-0 future-settlement-basic-override-cell">
             <input
               type="text"
               class="form-control suji7 comma decimal0 future-field-input future-basic-override-input-readonly"
               name="settlement_basic_override_thousand[{{ $i }}]"
               style="ime-mode: disabled;"
               inputmode="numeric"
-              tabindex="{{ $settlementBasicOverrideEnabled ? '0' : '-1' }}"
-              @readonly(!$settlementBasicOverrideEnabled)
               value="{{ old('settlement_basic_override_thousand.'.$i, isset($prefillFuture['plan']['settlement_basic_override_thousand'][$i]) ? number_format($prefillFuture['plan']['settlement_basic_override_thousand'][$i]) : '') }}"
             >
           </td>
@@ -908,7 +910,7 @@
             <input type="text" class="form-control suji8 comma decimal0 future-field-calc" name="cal_amount[110]" style=" background-color: #f0f0f0;" readonly tabindex="-1">
           </td>
           <td class="border px-1 py-1"></td>
-          <td class="border px-1 py-1"></td>
+          <td class="border px-1 py-1 future-calendar-basic-override-cell"></td>
           <td class="border px-1 py-1">
             <input type="text" class="form-control suji7 comma decimal0" name="cal_tax[110]" style=" background-color: #f0f0f0;" readonly tabindex="-1">
           </td>
@@ -917,7 +919,7 @@
             <input type="text" class="form-control suji8 comma decimal0 future-field-calc" name="set_amount[110]" style=" background-color: #f0f0f0;" readonly tabindex="-1">
           </td>
           <td class="border px-1 py-1"></td>
-          <td class="border px-1 py-1"></td>
+          <td class="border px-1 py-1 future-settlement-basic-override-cell"></td>
           <td class="border px-1 py-1"></td>
           <td class="border px-1 py-1">
             <input type="text" class="form-control suji7 comma decimal0 future-field-calc" name="set_tax20[110]" style="background-color: #f0f0f0;" readonly tabindex="-1">
@@ -2748,6 +2750,7 @@ function applyFuturePayload(p) {
     }    
     
     try { window.rerenderFutureGiftYears?.({ skipRecalc: true }); } catch (_) {}    
+    try { window.syncFutureBasicOverrideInputsState?.(); } catch (_) {}    
   }
 
   // 行データ
@@ -3085,6 +3088,30 @@ function seedFutureBasicOverrideInputs(kind) {
 function syncFutureBasicOverrideInputsState() {
   const calEnabled = !!document.querySelector('input[type="checkbox"][name="calendar_basic_override_enabled"]:checked');
   const setEnabled = !!document.querySelector('input[type="checkbox"][name="settlement_basic_override_enabled"]:checked');
+
+
+  document.querySelectorAll('.future-calendar-basic-override-cell').forEach((el) => {
+    el.classList.toggle('future-basic-override-col-hidden', !calEnabled);
+  });
+  document.querySelectorAll('.future-calendar-basic-override-col').forEach((el) => {
+    el.classList.toggle('future-basic-override-col-hidden', !calEnabled);
+  });
+  document.querySelectorAll('.future-settlement-basic-override-cell').forEach((el) => {
+    el.classList.toggle('future-basic-override-col-hidden', !setEnabled);
+  });
+  document.querySelectorAll('.future-settlement-basic-override-col').forEach((el) => {
+    el.classList.toggle('future-basic-override-col-hidden', !setEnabled);
+  });
+
+  const calGroupHeader = document.getElementById('future-calendar-group-header');
+  if (calGroupHeader) {
+    calGroupHeader.colSpan = calEnabled ? 6 : 5;
+  }
+
+  const setGroupHeader = document.getElementById('future-settlement-group-header');
+  if (setGroupHeader) {
+    setGroupHeader.colSpan = setEnabled ? 7 : 6;
+  }
 
   for (let i = 1; i <= 20; i++) {
     const calEl = document.querySelector(`input[name="calendar_basic_override_thousand[${i}]"]`);
