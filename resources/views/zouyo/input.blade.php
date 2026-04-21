@@ -1314,7 +1314,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // ★ 保険:
         //   基礎控除額修正チェックは最後に現在状態を必ず明示反映する
-        ['calendar_basic_override_enabled', 'settlement_basic_override_enabled'].forEach((name) => {
+        ['calendar_tax_override_enabled', 'settlement_basic_override_enabled'].forEach((name) => {
           const checkbox = pane.querySelector(`input[type="checkbox"][name="${name}"]`);
           if (checkbox) {
             fd.set(name, checkbox.checked ? '1' : '0');
