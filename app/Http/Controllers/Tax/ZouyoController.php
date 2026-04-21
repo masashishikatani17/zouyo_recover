@@ -179,12 +179,14 @@ final class ZouyoController extends Controller
                  // 暦年
                  'cal_amount'      => array_fill(1, 20, null),
                  'cal_basic'       => array_fill(1, 20, null),
+                 'calendar_basic_override_thousand' => array_fill(1, 20, null),                 
                  'cal_after_basic' => array_fill(1, 20, null),
                  'cal_tax'         => array_fill(1, 20, null),
                  'cal_cum'         => array_fill(1, 20, null),
                  // 精算
                  'set_amount'      => array_fill(1, 20, null),
                  'set_basic110'    => array_fill(1, 20, null),
+                 'settlement_basic_override_thousand' => array_fill(1, 20, null),                 
                  'set_after_basic' => array_fill(1, 20, null),
                  'set_after_25m'   => array_fill(1, 20, null),
                  'set_tax20'       => array_fill(1, 20, null),
@@ -471,11 +473,13 @@ final class ZouyoController extends Controller
                 $prefillFuture['plan']['age'][$i]        = $r->age;
                 $prefillFuture['plan']['cal_amount'][$i]      = $r->calendar_amount_thousand;
                 $prefillFuture['plan']['cal_basic'][$i]       = $r->calendar_basic_deduction_thousand;
+                $prefillFuture['plan']['calendar_basic_override_thousand'][$i] = $r->calendar_basic_override_thousand;
                 $prefillFuture['plan']['cal_after_basic'][$i] = $r->calendar_after_basic_thousand;
                 $prefillFuture['plan']['cal_tax'][$i]         = $r->calendar_special_tax_thousand;
                 $prefillFuture['plan']['cal_cum'][$i]         = $r->calendar_add_cum_thousand;
                 $prefillFuture['plan']['set_amount'][$i]      = $r->settlement_amount_thousand;
                 $prefillFuture['plan']['set_basic110'][$i]    = $r->settlement_110k_basic_thousand;
+                $prefillFuture['plan']['settlement_basic_override_thousand'][$i] = $r->settlement_basic_override_thousand;
                 $prefillFuture['plan']['set_after_basic'][$i] = $r->settlement_after_basic_thousand;
                 $prefillFuture['plan']['set_after_25m'][$i]   = $r->settlement_after_25m_thousand;
                 $prefillFuture['plan']['set_tax20'][$i]       = $r->settlement_tax20_thousand;
@@ -1771,7 +1775,10 @@ Log::debug('PDF selected pages in makeInputContext', [
              $request->exists('settlement_basic_override_enabled') ||             
             ($recipientNo !== null) ||
              !empty($request->input('cal_amount', [])) ||
-             !empty($request->input('set_amount', []));
+             !empty($request->input('set_amount', [])) ||
+             !empty($request->input('calendar_basic_override_thousand', [])) ||
+             !empty($request->input('settlement_basic_override_thousand', []));
+
         if (!$hasAny) return ['header'=>false, 'recipient'=>false, 'plan_rows'=>0];
  
          // 1) ヘッダ（1:1）
@@ -1853,11 +1860,13 @@ Log::debug('PDF selected pages in makeInputContext', [
             // ★★★ 事前に配列を取得して presence を array_key_exists で判定（"0" も存在として扱う）★★★
             $arrCalAmount      = (array)$request->input('cal_amount', []);
             $arrCalBasic       = (array)$request->input('cal_basic', []);
+            $arrCalBasicOverride = (array)$request->input('calendar_basic_override_thousand', []);
             $arrCalAfterBasic  = (array)$request->input('cal_after_basic', []);
             $arrCalTax         = (array)$request->input('cal_tax', []);
             $arrCalCum         = (array)$request->input('cal_cum', []);
             $arrSetAmount      = (array)$request->input('set_amount', []);
             $arrSetBasic110    = (array)$request->input('set_basic110', []);
+            $arrSetBasicOverride = (array)$request->input('settlement_basic_override_thousand', []);
             $arrSetAfterBasic  = (array)$request->input('set_after_basic', []);
             $arrSetTax20       = (array)$request->input('set_tax20', []);
             $arrSetCum         = (array)$request->input('set_cum', []);
@@ -1885,11 +1894,13 @@ Log::debug('PDF selected pages in makeInputContext', [
                 $present = (
                     array_key_exists($i, $arrCalAmount)     ||
                     array_key_exists($i, $arrCalBasic)      ||
+                    array_key_exists($i, $arrCalBasicOverride) ||                    
                     array_key_exists($i, $arrCalAfterBasic) ||
                     array_key_exists($i, $arrCalTax)        ||
                     array_key_exists($i, $arrCalCum)        ||
                     array_key_exists($i, $arrSetAmount)     ||
                     array_key_exists($i, $arrSetBasic110)   ||
+                    array_key_exists($i, $arrSetBasicOverride) ||                    
                     array_key_exists($i, $arrSetAfterBasic) ||
                     array_key_exists($i, $arrSetTax20)      ||
                     array_key_exists($i, $arrSetCum)
@@ -1911,11 +1922,13 @@ Log::debug('PDF selected pages in makeInputContext', [
                 $put('age',        $this->intOrNull($request->input("age.$i")));
                 $put('calendar_amount_thousand',          $this->toThousand($request->input("cal_amount.$i")));
                 $put('calendar_basic_deduction_thousand', $this->toThousand($request->input("cal_basic.$i")));
+                $put('calendar_basic_override_thousand',  $this->toThousand($request->input("calendar_basic_override_thousand.$i")));
                 $put('calendar_after_basic_thousand',     $this->toThousand($request->input("cal_after_basic.$i")));
                 $put('calendar_special_tax_thousand',     $this->toThousand($request->input("cal_tax.$i")));
                 $put('calendar_add_cum_thousand',         $this->toThousand($request->input("cal_cum.$i")));
                 $put('settlement_amount_thousand',        $this->toThousand($request->input("set_amount.$i")));
                 $put('settlement_110k_basic_thousand',    $this->toThousand($request->input("set_basic110.$i")));
+                $put('settlement_basic_override_thousand',$this->toThousand($request->input("settlement_basic_override_thousand.$i")));
                 $put('settlement_after_basic_thousand',   $this->toThousand($request->input("set_after_basic.$i")));
                 $put('settlement_after_25m_thousand',     $this->toThousand($request->input("set_after_25m.$i")));
                 $put('settlement_tax20_thousand',         $this->toThousand($request->input("set_tax20.$i")));
@@ -2275,9 +2288,11 @@ if ($i == 1){
                 'plan' => [
                     'gift_year'=>$makeArr(20),'age'=>$makeArr(20),
                     'cal_amount'=>$makeArr(20),'cal_basic'=>$makeArr(20),
+                    'calendar_basic_override_thousand'=>$makeArr(20),                    
                     'cal_after_basic'=>$makeArr(20),'cal_tax'=>$makeArr(20),
                     'cal_cum'=>$makeArr(20),
                     'set_amount'=>$makeArr(20),'set_basic110'=>$makeArr(20),
+                    'settlement_basic_override_thousand'=>$makeArr(20),                    
                     'set_after_basic'=>$makeArr(20),'set_after_25m'=>$makeArr(20),
                     'set_tax20'=>$makeArr(20),'set_cum'=>$makeArr(20),
                 ],
@@ -2346,11 +2361,13 @@ if ($i == 1){
             $plan['age'][$i]        = $r->age;
             $plan['cal_amount'][$i]      = $r->calendar_amount_thousand;
             $plan['cal_basic'][$i]       = $r->calendar_basic_deduction_thousand;
+            $plan['calendar_basic_override_thousand'][$i] = $r->calendar_basic_override_thousand;
             $plan['cal_after_basic'][$i] = $r->calendar_after_basic_thousand;
             $plan['cal_tax'][$i]         = $r->calendar_special_tax_thousand;
             $plan['cal_cum'][$i]         = $r->calendar_add_cum_thousand;
             $plan['set_amount'][$i]      = $r->settlement_amount_thousand;
             $plan['set_basic110'][$i]    = $r->settlement_110k_basic_thousand;
+            $plan['settlement_basic_override_thousand'][$i] = $r->settlement_basic_override_thousand;
             $plan['set_after_basic'][$i] = $r->settlement_after_basic_thousand;
             $plan['set_after_25m'][$i]   = $r->settlement_after_25m_thousand;
             $plan['set_tax20'][$i]       = $r->settlement_tax20_thousand;
@@ -4534,7 +4551,11 @@ Log::debug('[FG DEBUG] set_tax20 full request', [
     private function requestHasAnyFutureRows(Request $r): bool
     {
         for ($i=1;$i<=20;$i++){
-            foreach (['cal_amount','cal_basic','cal_after_basic','cal_tax','cal_cum','set_amount','set_basic110','set_after_basic','set_after_25m','set_tax20','set_cum'] as $k){
+
+            foreach ([
+                'cal_amount','cal_basic','calendar_basic_override_thousand','cal_after_basic','cal_tax','cal_cum',
+                'set_amount','set_basic110','settlement_basic_override_thousand','set_after_basic','set_after_25m','set_tax20','set_cum'
+            ] as $k){
                 if ($r->has("{$k}.{$i}")) return true;
             }
         }

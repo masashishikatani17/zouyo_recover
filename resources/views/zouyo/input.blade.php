@@ -1344,7 +1344,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const KEYS = [
           'gift_year','age',
           'cal_amount','cal_basic','cal_after_basic','cal_tax','cal_cum',
+          'calendar_basic_override_thousand',          
           'set_amount','set_basic110','set_after_basic','set_after_25m','set_tax20','set_cum',
+          'settlement_basic_override_thousand',          
           'gift_month','gift_day',
         ];
         // plan[key][i] または key[i] を探して、最終的に key[i] を必ず積む
@@ -1749,7 +1751,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // 行キー一覧（暦年/精算/贈与日）
     const KEYS = [
       'cal_amount','cal_basic','cal_after_basic','cal_tax','cal_cum',
+      'calendar_basic_override_thousand',      
       'set_amount','set_basic110','set_after_basic','set_after_25m','set_tax20','set_cum',
+      'settlement_basic_override_thousand',      
       'gift_month','gift_day','gift_year'
     ];
 

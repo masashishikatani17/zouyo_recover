@@ -3513,8 +3513,12 @@ window.saveCurrentInputs = async function (saveUrl, options = {}) {
       for (let i = 1; i <= 20; i++) {
         const ca = document.querySelector(`input[name="cal_amount[${i}]"]`)?.value ?? '';
         const sa = document.querySelector(`input[name="set_amount[${i}]"]`)?.value ?? '';
+        const cbo = document.querySelector(`input[name="calendar_basic_override_thousand[${i}]"]`)?.value ?? '';
+        const sbo = document.querySelector(`input[name="settlement_basic_override_thousand[${i}]"]`)?.value ?? '';
         if (ca !== '') fd.set(`cal_amount[${i}]`, String(toInt(ca)));
         if (sa !== '') fd.set(`set_amount[${i}]`, String(toInt(sa)));
+        if (cbo !== '') fd.set(`calendar_basic_override_thousand[${i}]`, String(toInt(cbo)));
+        if (sbo !== '') fd.set(`settlement_basic_override_thousand[${i}]`, String(toInt(sbo)));
         const gyEl = document.querySelector(`input[name="gift_year[${i}]"]`);
         if (gyEl && gyEl.value !== '') fd.set(`gift_year[${i}]`, gyEl.value);
       }
