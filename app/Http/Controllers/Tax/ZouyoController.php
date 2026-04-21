@@ -165,7 +165,13 @@ final class ZouyoController extends Controller
 
          // これからの贈与プレフィル
          $prefillFuture = [
-             'header' => ['year'=>null,'month'=>null,'day'=>null],
+             'header' => [
+                 'year'=>null,
+                 'month'=>null,
+                 'day'=>null,
+                 'calendar_basic_override_enabled' => 0,
+                 'settlement_basic_override_enabled' => 0,
+             ],
              'recipient_no' => null,
              'plan' => [
                  'gift_year'  => array_fill(1, 20, null),
@@ -437,6 +443,22 @@ final class ZouyoController extends Controller
                 ->where('data_id', $dataId)->orderBy('recipient_no')->first();
             $prefillFuture['recipient_no'] = $fr?->recipient_no;
         }
+
+        // ▼ 基礎控除額修正チェックは受贈者ごとに保持
+        if ($prefillFuture['recipient_no']) {
+            $futureRecipient = \App\Models\FutureGiftRecipient::query()
+                ->where('data_id', $dataId)
+                ->where('recipient_no', $prefillFuture['recipient_no'])
+                ->first();
+
+            if ($futureRecipient) {
+                $prefillFuture['header']['calendar_basic_override_enabled'] =
+                    (int) ($futureRecipient->calendar_basic_override_enabled ?? 0);
+                $prefillFuture['header']['settlement_basic_override_enabled'] =
+                    (int) ($futureRecipient->settlement_basic_override_enabled ?? 0);
+            }
+        }
+        
         // プラン明細（row_no 1..20）
         if ($prefillFuture['recipient_no']) {
             $plans = \App\Models\FutureGiftPlanEntry::query()
@@ -752,11 +774,21 @@ Log::debug('PDF selected pages in makeInputContext', [
 
                     // ▼ これからの贈与（タブ input04）
                     try {
+
                         // 受贈者変更直後のスナップショット保存(行データなし)なら、行保存はスキップ
+                        // ただし、future ヘッダ（基準日 / 基礎控除額修正チェック）の変更がある場合は保存する
+                        $hasFutureHeaderInputs = $request->hasAny([
+                            'future_base_year',
+                            'future_base_month',
+                            'future_base_day',
+                            'calendar_basic_override_enabled',
+                            'settlement_basic_override_enabled',
+                        ]);
                         $autosaveOnlyRecipient = $request->boolean('autosave')
                             && $request->has('future_recipient_no')
                             && !$this->hasAnyPastInputs($request)
-                            && !$this->requestHasAnyFutureRows($request);
+                            && !$this->requestHasAnyFutureRows($request)
+                            && !$hasFutureHeaderInputs;
 
                         // autosave のうち「受贈者切替直後のスナップショット保存（行データなし）」は行保存をスキップ
                         if (!$autosaveOnlyRecipient) {
@@ -1735,6 +1767,8 @@ Log::debug('PDF selected pages in makeInputContext', [
              $request->filled('future_base_year') ||
              $request->filled('future_base_month') ||
              $request->filled('future_base_day') ||
+             $request->exists('calendar_basic_override_enabled') ||
+             $request->exists('settlement_basic_override_enabled') ||             
             ($recipientNo !== null) ||
              !empty($request->input('cal_amount', [])) ||
              !empty($request->input('set_amount', []));
@@ -1754,19 +1788,25 @@ Log::debug('PDF selected pages in makeInputContext', [
              );
          });
  
-         if ($request->hasAny(['future_base_year','future_base_month','future_base_day'])) {
-             $headerTouched = true;
+         if ($request->hasAny([
+             'future_base_year',
+             'future_base_month',
+             'future_base_day',
+         ])) {
+              $headerTouched = true;
          }
-
- 
- 
- 
+          
+          
          // 2) 受贈者（No 2..9）
          if ($recipientNo !== null) {
             \App\Models\FutureGiftRecipient::unguarded(function () use ($dataId, $recipientNo, $request) {
                  \App\Models\FutureGiftRecipient::updateOrCreate(
                      ['data_id' => (int)$dataId, 'recipient_no' => (int)$recipientNo],
-                     ['recipient_name' => $this->strOrNull($request->input('future_recipient_name'))]
+                     [
+                         'recipient_name' => $this->strOrNull($request->input('future_recipient_name')),
+                         'calendar_basic_override_enabled'   => $request->boolean('calendar_basic_override_enabled'),
+                         'settlement_basic_override_enabled' => $request->boolean('settlement_basic_override_enabled'),
+                     ]
                  );
              });
 
@@ -2225,7 +2265,13 @@ if ($i == 1){
                 'status' => 'ok',
                 'data_id' => $data->id,
                 'recipient_no' => null,
-                'header' => ['year'=>null,'month'=>null,'day'=>null],
+                'header' => [
+                    'year'=>null,
+                    'month'=>null,
+                    'day'=>null,
+                    'calendar_basic_override_enabled' => 0,
+                    'settlement_basic_override_enabled' => 0,
+                ],
                 'plan' => [
                     'gift_year'=>$makeArr(20),'age'=>$makeArr(20),
                     'cal_amount'=>$makeArr(20),'cal_basic'=>$makeArr(20),
@@ -2256,11 +2302,29 @@ if ($i == 1){
         }
     
         // 以降は現状のロジック（そのまま）
-        $header = ['year'=>null,'month'=>null,'day'=>null];
+        $header = [
+            'year'=>null,
+            'month'=>null,
+            'day'=>null,
+            'calendar_basic_override_enabled' => 0,
+            'settlement_basic_override_enabled' => 0,
+        ];
         if ($fh = \App\Models\FutureGiftHeader::where('data_id', $data->id)->first()) {
             $header['year']  = $fh->base_year;
             $header['month'] = $fh->base_month;
             $header['day']   = $fh->base_day;
+        }
+
+        $futureRecipient = \App\Models\FutureGiftRecipient::query()
+            ->where('data_id', $data->id)
+            ->where('recipient_no', $recipientNo)
+            ->first();
+
+        if ($futureRecipient) {
+            $header['calendar_basic_override_enabled'] =
+                (int) ($futureRecipient->calendar_basic_override_enabled ?? 0);
+            $header['settlement_basic_override_enabled'] =
+                (int) ($futureRecipient->settlement_basic_override_enabled ?? 0);
         }
     
         $makeArr = fn($n)=>array_fill(1,$n,null);
@@ -4464,177 +4528,7 @@ Log::debug('[FG DEBUG] set_tax20 full request', [
      */
     public function futureFetch(Request $request): JsonResponse
     {
-        try {
-            // --- 入力検証（data_id と recipient_no は必須） ---
-            $v = validator($request->all(), [
-                'data_id'            => ['required','integer','min:1'],
-                'future_recipient_no'=> ['required','integer','min:1'],
-            ]);
-            if ($v->fails()) {
-                return response()->json([
-                    'ok'    => false,
-                    'error' => 'Invalid parameters',
-                    'detail'=> $v->errors(),
-                ], Response::HTTP_UNPROCESSABLE_ENTITY);
-            }
-            $dataId = (int)$request->input('data_id');
-            $rn     = (int)$request->input('future_recipient_no');
-
-            // --- ヘッダ（贈与年月日）: 保存先が未確定でも空/old を返せばフロントは動く ---
-            // 既存で ZouyoInput 等に保持している場合は取得して反映してください（例示は空）
-            $header = [
-                'year'  => null,
-                'month' => null,
-                'day'   => null,
-            ];
-
-            // --- plan（将来行のサーバ側保持がある場合のみ詰める。無ければ空） ---
-            $plan = [
-                'cal_amount'      => new \stdClass(), // 空 object（配列だと mapObjFormatted の既存実装でズレるため）
-                'cal_basic'       => new \stdClass(),
-                'cal_after_basic' => new \stdClass(),
-                'cal_tax'         => new \stdClass(),
-                'cal_cum'         => new \stdClass(),
-                'set_amount'      => new \stdClass(),
-                'set_basic110'    => new \stdClass(),
-                'set_after_basic' => new \stdClass(),
-                'set_after_25m'   => new \stdClass(),
-                'set_tax20'       => new \stdClass(),
-                'set_cum'         => new \stdClass(),
-                'gift_month'      => new \stdClass(),
-                'gift_day'        => new \stdClass(),
-            ];
-
-            // --- 過年度（past）: 可能なら DB から取得。無ければ空配列で返す ---
-            $calendar = [];
-            try {
-                // 例: PastGiftCalendarEntry テーブルに (data_id, recipient_no, gift_yen, gift_year, gift_month, gift_day) がある想定
-                $entries = PastGiftCalendarEntry::query()
-                    ->where('data_id', $dataId)
-                    ->where('amount_thousand', '>', 0) // ★ 過年度贈与がゼロの行は除外
-                    ->where(function($q) use ($rn) {
-                        if (Schema::hasColumn((new PastGiftCalendarEntry)->getTable(), 'recipient_no')) {
-                            $q->where('recipient_no', $rn);
-                        }
-                    })
-                    ->orderBy('gift_year')
-                    ->orderBy('gift_month')
-                    ->orderBy('gift_day')
-                    ->get();
-
-
-                foreach ($entries as $e) {
-                    $k = (int)($e->amount_thousand ?? 0);
-                    $calendar[] = [
-                        'year'           => (int)($e->gift_year  ?? 0),
-                        'month'          => (int)($e->gift_month ?? 0),
-                        'day'            => (int)($e->gift_day   ?? 0),
-                        'amount_yen'      => $k * 1000,
-                        'amount_thousand' => $k,
-                        'tax_thousand'    => (int)($e->tax_thousand ?? 0), // ✅ これを追加！
-                
-                    ];
-                }
-            } catch (\Throwable $e) {
-                
-                /*
-                // モデル未連携でも 500 にしない
-                Log::warning('futureFetch: calendar load failed: '.$e->getMessage());
-                */
-                
-            }
-
-            $past = [
-                // applyFuturePayload は calendar / list / items / gifts / past_gifts / calendar_entries のいずれか配列を読める
-                'calendar' => $calendar,
-                // 表示用フォールバック合計（円/千円）を入れておくとクライアント側が拾う
-                'giftAmountYen' => array_sum(array_map(fn($c)=> (int)$c['amount_yen'], $calendar)),
-                'giftAmountK'   => array_sum(array_map(fn($c)=> (int)$c['amount_thousand'], $calendar)),
-            ];
-
-            // --- rekinen（年/月/日/贈与額(千円) の辞書配列）: PAST を再編 ---
-            // フロントは {year:{idx:y}, month:{idx:m}, day:{idx:d}, zoyo:{idx:k}} 形式を許容
-            $rekinen = [
-                'year'  => new \stdClass(),
-                'month' => new \stdClass(),
-                'day'   => new \stdClass(),
-                'zoyo'  => new \stdClass(), // 'zouyo' でも可だが片方で統一
-                'kojo'  => new \stdClass(),   // ★ 追加
-                'zouyo' => new \stdClass(),   // ★ 前方互換用に zoyo のコピー
-                
-            ];
-            // 1..N 連番を付け直す（キーは文字列でも OK）
-            foreach ($calendar as $i => $c) {
-                $idx = (string)($i + 1);
-                $rekinen['year']->{$idx}  = (int)$c['year'];
-                $rekinen['month']->{$idx} = (int)$c['month'];
-                $rekinen['day']->{$idx}   = (int)$c['day'];
-                $rekinen['zoyo']->{$idx}  = (int)$c['amount_thousand']; // 千円
-                $rekinen['zouyo']->{$idx} = (int)$c['amount_thousand'];
-                $rekinen['kojo']->{$idx}  = isset($c['tax_thousand']) ? (int)$c['tax_thousand'] : null;
-
-            }
-            
-            
-            $rekinen['total'] = [
-                'zoyo'  => array_sum(array_filter((array) $rekinen['zoyo'],  'is_numeric')),
-                'zouyo' => array_sum(array_filter((array) $rekinen['zouyo'], 'is_numeric')),
-                'kojo'  => array_sum(array_filter((array) $rekinen['kojo'],  'is_numeric')),
-            ];
-
-            
-            // --- birth（受贈者の生年月日） ---
-            $birth = null;
-            try {
-                // 例: PastGiftRecipient に (data_id, recipient_no, birth_year, birth_month, birth_day)
-                $rec = PastGiftRecipient::query()
-                    ->where('data_id', $dataId)
-                    ->where(function($q) use ($rn) {
-                        if (Schema::hasColumn((new PastGiftRecipient)->getTable(), 'recipient_no')) {
-                            $q->where('recipient_no', $rn);
-                        }
-                    })
-                    ->first();
-                if ($rec) {
-                    $birth = [
-                        'year'  => (int)($rec->birth_year  ?? 0),
-                        'month' => (int)($rec->birth_month ?? 0),
-                        'day'   => (int)($rec->birth_day   ?? 0),
-                    ];
-                }
-            } catch (\Throwable $e) {
-                
-                /*
-                Log::info('futureFetch: birth not available: '.$e->getMessage());
-                */
-                
-                
-            }
-
-            // --- 返却 ---
-            return response()->json([
-                'ok'          => true,
-                'header'      => $header,
-                'recipient_no'=> $rn,
-                'plan'        => $plan,
-                'past'        => $past,
-                'rekinen'     => $rekinen,
-                'birth'       => $birth,
-            ], Response::HTTP_OK, [], JSON_UNESCAPED_UNICODE);
-        } catch (\Throwable $e) {
-            
-            /*
-            Log::error('futureFetch failed: '.$e->getMessage(), ['trace' => $e->getTraceAsString()]);
-            */
-            
-            
-            
-            // 500 を出さず、JSON で返す（フロントは graceful に表示できる）
-            return response()->json([
-                'ok'    => false,
-                'error' => 'Internal error',
-            ], Response::HTTP_OK);
-        }
+            return $this->fetchFutureGifts($request);
     }
  
     private function requestHasAnyFutureRows(Request $r): bool

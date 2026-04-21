@@ -252,10 +252,15 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.2;
     white-space: nowrap;
   }
+  
+
+  .future-basic-override-table__item span {
+    font-weight: 600;
+  }  
 
   .future-basic-override-table__item input[type="checkbox"] {
     width: auto;
@@ -588,6 +593,7 @@
         <td></td>
         <td>
           <label class="future-basic-override-table__item">
+            <input type="hidden" name="calendar_basic_override_enabled" value="0">            
             <input
               type="checkbox"
               name="calendar_basic_override_enabled"
@@ -605,6 +611,7 @@
         <td></td>
         <td>
           <label class="future-basic-override-table__item">
+            <input type="hidden" name="settlement_basic_override_enabled" value="0">            
             <input
               type="checkbox"
               name="settlement_basic_override_enabled"
@@ -3006,6 +3013,37 @@ function setCheckboxChecked(name, v) {
   if (!el) return;
   el.checked = String(v) === '1' || v === true || Number(v) === 1;
 }
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('future-recipient-no');
+  if (!sel) return;
+
+  const saveUrl =
+    sel.dataset.saveUrl ||
+    document.getElementById('zouyo-input-form')?.action ||
+    '/zouyo/save';
+
+  [
+    'calendar_basic_override_enabled',
+    'settlement_basic_override_enabled',
+  ].forEach((name) => {
+    const el = document.querySelector(`input[type="checkbox"][name="${name}"]`);
+    if (!el) return;
+    if (el.dataset.futureBasicOverrideBound === '1') return;
+    el.dataset.futureBasicOverrideBound = '1';
+
+    el.addEventListener('change', async () => {
+      try {
+        await saveCurrentInputs(saveUrl, {
+          includeRows: false,
+          includeHeader: true,
+        });
+      } catch (_) {}
+    });
+  });
+});
+
 
 /**
  * ============================================================
