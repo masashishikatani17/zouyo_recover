@@ -1377,7 +1377,8 @@ const calcRekinenCumK = (rekinen, deathDate) => {
               if (!amtEl) continue;
           
               const giftYear = toInt(document.querySelector(`input[name="gift_year[${i}]"]`)?.value, getFutureRowYear(i));
-              const basicKForRow = getGiftBasicDeductionKByYear(giftYear || getFutureBaseYear());
+              const masterBasicKForRow = getGiftBasicDeductionKByYear(giftYear || getFutureBaseYear());
+              const basicKForRow = getAppliedFutureBasicDeductionK('calendar', i, masterBasicKForRow);
               const amountK_self = toInt(amtEl.value, 0);
               const afterK = Math.max(amountK_self - basicKForRow, 0);
               const taxK = calcGiftTaxKyen(afterK, isTokurei);
@@ -1502,7 +1503,8 @@ const calcRekinenCumK = (rekinen, deathDate) => {
           if (!el) continue;
 
           const giftYear = toInt(document.querySelector(`input[name="gift_year[${i}]"]`)?.value, getFutureRowYear(i));
-          const basicKForRow = getGiftBasicDeductionKByYear(giftYear || getFutureBaseYear());
+          const masterBasicKForRow = getGiftBasicDeductionKByYear(giftYear || getFutureBaseYear());
+          const basicKForRow = getAppliedFutureBasicDeductionK('settlement', i, masterBasicKForRow);
           const amountK = toInt(el.value, 0);
 
           setK('set_basic110', i, amountK > 0 ? basicKForRow : '');
@@ -2612,10 +2614,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // 必要な場合のみ再計算も行う
             if (
               /^\s*(cal_amount|set_amount|gift_month|gift_day)\[\d+\]\s*$/.test(el.name) ||
+              /^(calendar_basic_override_thousand|settlement_basic_override_thousand)\[\d+\]$/.test(el.name) ||
               ['future_base_year','future_base_month','future_base_day',
                'inherit_base_month','inherit_base_day',
                'header_year','header_month','header_day'].includes(el.name)
             ) {
+              try { recalcSettlementAllRows && recalcSettlementAllRows(); } catch (_) {}
+              try { syncCalendarGiftLockBySettlement && syncCalendarGiftLockBySettlement(); } catch (_) {}
               try { recalcAllRowsCal(); } catch (_) {}
               try { updateTopCounters && updateTopCounters(); } catch (_) {}
               try { recalcPastOnlyCum0 && recalcPastOnlyCum0(); } catch (_) {}
@@ -3064,6 +3069,40 @@ function setCheckboxChecked(name, v) {
 }
 
 
+function getFutureBasicOverrideInputK(fieldName, rowNo) {
+  const el = document.querySelector(`input[name="${fieldName}[${rowNo}]"]`);
+  if (!el) return null;
+
+  const raw = (typeof window.normalizeNum === 'function'
+    ? window.normalizeNum(el.value ?? '')
+    : String(el.value ?? '')
+  ).replace(/,/g, '').trim();
+
+  if (raw === '') return null;
+
+  const value = toInt(raw, 0);
+  return Number.isFinite(value) ? Math.max(0, value) : null;
+}
+
+function getAppliedFutureBasicDeductionK(kind, rowNo, masterBasicK) {
+  const checkboxName = kind === 'calendar'
+    ? 'calendar_basic_override_enabled'
+    : 'settlement_basic_override_enabled';
+
+  const fieldName = kind === 'calendar'
+    ? 'calendar_basic_override_thousand'
+    : 'settlement_basic_override_thousand';
+
+  const enabled = !!document.querySelector(`input[type="checkbox"][name="${checkboxName}"]:checked`);
+  if (!enabled) {
+    return masterBasicK;
+  }
+
+  const manualK = getFutureBasicOverrideInputK(fieldName, rowNo);
+  return manualK ?? masterBasicK;
+}
+
+
 function seedFutureBasicOverrideInputs(kind) {
   const fieldName = kind === 'calendar'
     ? 'calendar_basic_override_thousand'
@@ -3162,6 +3201,13 @@ document.addEventListener('DOMContentLoaded', () => {
         seedFutureBasicOverrideInputs('settlement');
       }
       syncFutureBasicOverrideInputsState();
+
+
+      try { recalcSettlementAllRows && recalcSettlementAllRows(); } catch (_) {}
+      try { syncCalendarGiftLockBySettlement && syncCalendarGiftLockBySettlement(); } catch (_) {}
+      try { recalcAllRowsCal && recalcAllRowsCal(); } catch (_) {}
+      try { updateTopCounters && updateTopCounters(); } catch (_) {}
+      try { recalcPastOnlyCum0 && recalcPastOnlyCum0(); } catch (_) {}
 
       try {
         await saveCurrentInputs(saveUrl, {
