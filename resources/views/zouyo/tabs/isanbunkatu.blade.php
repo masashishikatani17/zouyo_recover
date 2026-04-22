@@ -358,10 +358,7 @@
     }
     $sumSettlementGiftKyen = $sumSettlementGiftYen / 1000;
 
-    // No17 小計（No15 - No16）をマイナスのまま保持
-    // No18 納付税額 = 小計のプラス部分合計
-    // No19 還付税額 = 小計のマイナス部分をプラス表示した合計
-    $sumSubtotalRawYen = 0;
+    // 納付税額 / 還付税額 集計用
     $sumPayableYen = 0;
     $sumRefundYen  = 0;
     for ($__i = 2; $__i <= 10; $__i++) {
@@ -369,14 +366,12 @@
             ? (int)($heirsByIdx[$__i]['raw_final_after_settlement_yen'] ?? 0)
             : ((int)($heirsByIdx[$__i]['sashihiki_tax_yen'] ?? 0) - (int)($heirsByIdx[$__i]['settlement_gift_tax_yen'] ?? 0));
 
-        $sumSubtotalRawYen += $raw;
         if ($raw >= 0) {
             $sumPayableYen += $raw;
         } else {
             $sumRefundYen += abs($raw);
         }
     }
-    $sumSubtotalRawKyen = $sumSubtotalRawYen / 1000;
     $sumPayableKyen     = $sumPayableYen / 1000;
     $sumRefundKyen      = $sumRefundYen / 1000;
 
@@ -792,7 +787,7 @@
 
           <?php $i = 13; ?>
           <tr>
-            <td class="isan-group-col" rowspan="9">
+            <td class="isan-group-col" rowspan="8">
               <div class="vertical-text">各人の納付・還付税額</div>
             </td>
             <td class="isan-subgroup-col" rowspan="4">
@@ -873,19 +868,8 @@
             </td>
           </tr>
 
-          <?php $i = 19; ?>
-          <tr>
-            <td colspan="3" class="text-center" style="font-weight: bold;">小　　　計</td>
-            <td class="text-center">{{ $i }}</td>
-            <td>
-              <input type="text" class="form-control suji8 comma decimal0"
-                     style="background-color:#f0f0f0;" readonly tabindex="-1"
-                     id="isan-total-subtotal"                     
-                     value="{{ number_format((int)round($sumSubtotalRawKyen)) }}">
-            </td>
-          </tr>
 
-          <?php $i = 20; ?>
+          <?php $i = 19; ?>
           <tr>
             <td colspan="2" class="isan-subgroup-col isan-subgroup-2rows" rowspan="2">
               <div>申告納税額</div>
@@ -900,7 +884,7 @@
             </td>
           </tr>
 
-          <?php $i = 21; ?>
+          <?php $i = 20; ?>
           <tr>
             <td class="text-start" style="font-weight: bold;">還付税額</td>
             <td class="text-center">{{ $i }}</td>
@@ -1204,17 +1188,6 @@
                 $rawSubtotalYen = array_key_exists('raw_final_after_settlement_yen', $heirsByIdx[$no] ?? [])
                     ? (int)($heirsByIdx[$no]['raw_final_after_settlement_yen'] ?? 0)
                     : ((int)($heirsByIdx[$no]['sashihiki_tax_yen'] ?? 0) - (int)($heirsByIdx[$no]['settlement_gift_tax_yen'] ?? 0));
-              @endphp
-              <td><input type="text" class="form-control suji8 comma decimal0" style="background-color:#f0f0f0;" readonly tabindex="-1" data-role="raw_subtotal" data-heir-no="{{ $no }}" value="{{ $toKyen($rawSubtotalYen) }}"></td>
-            @endfor
-          </tr>
-
-          <tr>
-            @for ($no = 2; $no <= 10; $no++)
-              @php
-                $rawSubtotalYen = array_key_exists('raw_final_after_settlement_yen', $heirsByIdx[$no] ?? [])
-                    ? (int)($heirsByIdx[$no]['raw_final_after_settlement_yen'] ?? 0)
-                    : ((int)($heirsByIdx[$no]['sashihiki_tax_yen'] ?? 0) - (int)($heirsByIdx[$no]['settlement_gift_tax_yen'] ?? 0));
                 $payableYen = max(0, $rawSubtotalYen);
               @endphp
               <td><input type="text" class="form-control suji8 comma decimal0" style="background-color:#f0f0f0;" readonly tabindex="-1" data-role="payable_tax" data-heir-no="{{ $no }}" value="{{ $toKyen($payableYen) }}"></td>
@@ -1275,10 +1248,10 @@
     }
 
 
-    // 「申告納税額」(rowspan=2) は、右側の No.20 / No.21 行の合計高さに合わせる
-    if (paytaxMergedCell && leftBodyRows.length >= 21 && rightBodyRows.length >= 21) {
-      const payableIdx = 19; // No.20
-      const refundIdx  = 20; // No.21
+    // 「申告納税額」(rowspan=2) は、右側の No.19 / No.20 行の合計高さに合わせる
+    if (paytaxMergedCell && leftBodyRows.length >= 20 && rightBodyRows.length >= 20) {
+      const payableIdx = 18; // No.19
+      const refundIdx  = 19; // No.20
       const mergedHeight =
         (rightBodyRows[payableIdx]?.offsetHeight || 0) +
         (rightBodyRows[refundIdx]?.offsetHeight || 0);
@@ -3172,7 +3145,6 @@ document.addEventListener('DOMContentLoaded', function () {
     isanPreviewSetValue('#isan-total-credit', left.credit_total ?? '');
     isanPreviewSetValue('#isan-total-sashihiki', left.sashihiki_total ?? '');
     isanPreviewSetValue('#isan-total-settlement-credit', left.settlement_credit_total ?? '');
-    isanPreviewSetValue('#isan-total-subtotal', left.subtotal_total ?? '');
     isanPreviewSetValue('#isan-total-payable', left.payable_total ?? '');
     isanPreviewSetValue('#isan-total-refund', left.refund_total ?? '');
 
@@ -3194,7 +3166,6 @@ document.addEventListener('DOMContentLoaded', function () {
       isanPreviewSetValue(`input[data-role="credit_total"][data-heir-no="${no}"]`, row.credit_total ?? '');
       isanPreviewSetValue(`input[data-role="sashihiki_tax"][data-heir-no="${no}"]`, row.sashihiki_tax ?? '');
       isanPreviewSetValue(`input[data-role="settlement_gift_tax"][data-heir-no="${no}"]`, row.settlement_gift_tax ?? '');
-      isanPreviewSetValue(`input[data-role="raw_subtotal"][data-heir-no="${no}"]`, row.raw_subtotal ?? '');
       isanPreviewSetValue(`input[data-role="payable_tax"][data-heir-no="${no}"]`, row.payable_tax ?? '');
       isanPreviewSetValue(`input[data-role="refund_tax"][data-heir-no="${no}"]`, row.refund_tax ?? '');
     });
