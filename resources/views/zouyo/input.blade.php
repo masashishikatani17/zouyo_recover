@@ -6,7 +6,7 @@
 @section('content')
 
 
-<div class="container-grey" style="width: 1100px; max-width: 1500px;">
+<div class="container-blue" style="width: 1100px; max-width: 1500px;">
   
 
   <style>
@@ -174,8 +174,8 @@
     
     
 
-    <img src="{{ asset('storage/images/ribbon.jpg') }}" alt="…">
-       <h13>最適贈与額計算システム"贈与名人"・インプット表</h13>
+    <img src="{{ asset('storage/images/kado_lefttop.jpg') }}" alt="…">
+       <h0 class="mt-5 mb-0">最適贈与額計算システム"贈与名人"・インプット表</h0>
    <div class="wrapper"> 
       <div class="d-flex flex-wrap justify-content-end gap-2">
 

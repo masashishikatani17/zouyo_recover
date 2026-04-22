@@ -256,14 +256,14 @@
 
 
 
-<table class="table-base ms-10" style="width: 250px;">
+<table class="table-base ms-10" style="width: 290px;">
   <tr>
     <th class="bg-blue" style="width: 120px;">被相続人</th>
-    <td style="width: 130px;">
+    <td style="width: 170px;">
       <input type="text" class="form-control d-inline input-small isan-field-ref"
              id="isan-customer-name"      
              name="customer_name"
-             style="width: 100px; background-color: #f0f0f0; text-align: left;"             
+             style="width: 160px; background-color: #f0f0f0; text-align: left;"             
              readonly tabindex="-1" value="{{ $donorName }}">             
     </td>
   </tr>

@@ -291,7 +291,7 @@
       <tr>
         <th style="width: 120px;">お客様名</td>
         <td class="text-start">
-             <input type="text" class="form-control suji11 title-field-input"             
+             <input type="text" class="form-control kana20 title-field-input"             
                     name="header_customer_name" style="ime-mode:active; text-align:left;"
                     value="{{ old('header_customer_name', data_get($prefillHeader ?? [], 'customer_name', '')) }}"
                     placeholder="" >

@@ -1134,266 +1134,97 @@ table + .structure-heading {
           margin: 0;
         }
         
-        
-                
-        .kana2 {
-            padding: 0 2px !important;  /* 左右だけ少し余白、上下は0 */
-            font-size: 12px;
-            margin: auto;
-            height: 22px;
-            width: 32px;
-            text-align: center;
-            line-height: 1;
-            border-radius: 5px;
-            border-color:#d0d0d0;
-        }
-        .kana3 {
+
+/* =========================================================
+   kana 系入力
+   - Bootstrap の .form-control 幅100%対策込み
+   - 共通部分をまとめ、差分は width 等だけに整理
+========================================================= */
+
+        input[class^="kana"],
+        input[class*=" kana"],
+        textarea[class^="kana"],
+        textarea[class*=" kana"],
+        select[class^="kana"],
+        select[class*=" kana"] {
             font-size: 13px;
             margin: auto;
             height: 22px;
-            width: 70px;
             text-align: left;
             line-height: 1.3;
             border-radius: 5px;
-            border-color:#d0d0d0;
+            border-color: #d0d0d0;
         }
         
-        .kana4 {
-            padding: 0 2px !important;
-            font-size: 13px;
-            margin: auto;
-            height: 22px;
-            width: 72px;
-            text-align: left;
-            line-height: 1.3;
-            border-radius: 5px;
-            border-color:#d0d0d0;
+        .form-control[class^="kana"],
+        .form-control[class*=" kana"] {
+            display: inline-block;
+            flex: 0 0 auto !important;
         }
         
-        
-        .kana5 {
-            padding: 0 2px !important;
-            font-size: 13px;
-            margin: auto;
-            height: 22px;
-            width: 75px;
-            text-align: left;
-            line-height: 1.3;
-            border-radius: 5px;
-            border-color:#d0d0d0;
-        }
-        
-        .kana6 {
-            font-size: 13px;
-            margin: auto;
-            height: 22px;
-            width: 110px;
-            text-align: left;
-            line-height: 1.3;
-            border-radius: 5px;
-            border-color:#d0d0d0;
-        }
-        
+        .kana2,
+        .kana4,
+        .kana5,
         .kana7 {
             padding: 0 2px !important;
-            font-size: 13px;
-            margin: auto;
-            height: 22px;
-            width: 115px;
-            text-align: left;
-            line-height: 1.3;
-            border-radius: 5px;
-            border-color:#d0d0d0;
         }
         
-        .kana8 {
-            font-size: 13px;
-            margin: auto;
-            height: 22px;
-            width: 118px !important;
-            text-align: left;
-            line-height: 1.3;
-            border-radius: 5px;
-            border-color:#d0d0d0;
-        }
-        .kana9 {
-            font-size: 13px;
-            margin: auto;
-            height: 22px;
-            width: 156px;
-            text-align: left;
-            line-height: 1.3;
-            border-radius: 5px;
-            border-color:#d0d0d0;
-        }
-        
-        .kana10 {
+        .kana2 {
+            width: 32px !important;
             font-size: 12px;
-            margin: auto;
-            height: 22px;
-            width: 160px;
-            text-align: left;
-            line-height: 1.3;
-            border-radius: 5px;
-            border-color:#d0d0d0;
+            text-align: center;
+            line-height: 1;
         }
         
-         .kana20 {
-            font-size: 13px;
-            margin: auto;
-            height: 22px;
-            width: 250px;
-            text-align: left;
-            line-height: 1.3;
-            border-radius: 5px;
-            border-color:#d0d0d0;
-        }
-        .kana30 {
-            font-size: 13px;
-            margin: auto;
-            height: 22px;
-            width: 350px;
-            text-align: left;
-            line-height: 1.3;
-            border-radius: 5px;
-            border-color:#d0d0d0;
-        }
-        .suji2 {
-            width: 30px !important;
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-            }
+        .kana3  { width: 70px !important; }
+        .kana4  { width: 72px !important; }
+        .kana5  { width: 75px !important; }
+        .kana6  { width: 110px !important; }
+        .kana7  { width: 115px !important; }
+        .kana8  { width: 118px !important; }
+        .kana9  { width: 156px !important; }
+        .kana10 { width: 160px !important; }
+        .kana20 { width: 170px !important; }
+        .kana30 { width: 350px !important; }
         
-        .input-group .form-control.suji2 {
-            flex: 0 0 auto !important; /* 横幅を自動拡張しない */
-            width: 40px !important;    /* 幅を強制固定 */
+        
+        /* =========================================================
+           suji 系入力
+           - input-group 内で横幅が勝手に広がらないよう flex 固定
+        ========================================================= */
+        
+        input[class^="suji"],
+        input[class*=" suji"],
+        textarea[class^="suji"],
+        textarea[class*=" suji"],
+        select[class^="suji"],
+        select[class*=" suji"] {
             height: 22px;
             line-height: 1.2;
             text-align: right;
         }
         
-        .suji3 {
-            width: 36px !important;
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-            }
-        
-        .input-group .form-control.suji3 {
-            flex: 0 0 auto !important; /* 横幅を自動拡張しない */
-            width: 52px !important;    /* 幅を強制固定 */
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
+        .input-group .form-control[class^="suji"],
+        .input-group .form-control[class*=" suji"] {
+            flex: 0 0 auto !important;
         }
         
-        .suji4 {
-            width: 40px !important;
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-            }
-        .input-group .form-control.suji4 {
-            flex: 0 0 auto !important; /* 横幅を自動拡張しない */
-            width: 60px !important;    /* 幅を強制固定 */
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-        }
-                 
-        .suji5 {
-            width: 70px !important;
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-            }
+        .suji2  { width: 30px !important; }
+        .suji3  { width: 36px !important; }
+        .suji4  { width: 40px !important; }
+        .suji5  { width: 70px !important; }
+        .suji6  { width: 80px !important; }
+        .suji7  { width: 66px !important; }
+        .suji8  { width: 70px !important; }
+        .suji9  { width: 110px !important; }
+        .suji10 { width: 120px !important; }
+        .suji11 { width: 132px !important; }
         
-        
-        .input-group .form-control.suji5 {
-            flex: 0 0 auto !important; /* 横幅を自動拡張しない */
-            width: 70px !important;    /* 幅を強制固定 */
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-        }
-
-    
-        .suji6 {
-            width: 80px !important;
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-            }
-        
-        .input-group .form-control.suji6 {
-            flex: 0 0 auto !important; /* 横幅を自動拡張しない */
-            width: 80px !important;    /* 幅を強制固定 */
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-        }
-            
-        .suji7 {
-            width: 66px !important;
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-            }
-        
-        .input-group .form-control.suji7 {
-            flex: 0 0 auto !important; /* 横幅を自動拡張しない */
-            width: 66px !important;    /* 幅を強制固定 */
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-        }
-        
-        .suji8 {
-            width: 70px !important;
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-            }
-        
-        .input-group .form-control.suji8 {
-            flex: 0 0 auto !important; /* 横幅を自動拡張しない */
-            width: 70px !important;    /* 幅を強制固定 */
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-        }
-        
-        .suji9 {
-            width: 110px !important;
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-            }
-        
-        .input-group .form-control.suji9 {
-            flex: 0 0 auto !important; /* 横幅を自動拡張しない */
-            width: 110px !important;    /* 幅を強制固定 */
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-        }
-        
-       .suji10 {
-            width: 120px !important;
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-            }
-            
-        .suji11 {
-            width: 132px !important;
-            height: 22px;
-            line-height: 1.2;
-            text-align: right;
-            }
-
-
+        /* input-group 内だけ見た目の幅を変えるもの */
+        .input-group .form-control.suji2 { width: 40px !important; }
+        .input-group .form-control.suji3 { width: 52px !important; }
+        .input-group .form-control.suji4 { width: 60px !important; }        
+  
 /* margin-top/bottom/left/right */
     .mt-0 { margin-top: 0 !important; }
     .mt-1 { margin-top: 4px !important;  margin-top: var(--sp-1,4px) !important; }

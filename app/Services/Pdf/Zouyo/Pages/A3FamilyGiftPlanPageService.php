@@ -49,26 +49,26 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         $family = $payload['family'] ?? [];
 
         // ▼ 家族表の描画
-        $startY    = 54.35;
+        $startY    = 54.00;
         $rowHeight = 5.78;
 
 
         // 新しい家族構成表テンプレートの罫線位置に合わせた座標
         $colX = [
-            'name'         => 53.6,
-            'gender'       => 82.9,
-            'rel'          => 94.4,
-            'yousi'        => 115.8,
-            'souzoku'      => 140.1,
-            'civil_share'  => 168.5,
-            'houtei_share' => 184.7,            
-            'birth_year'   => 201.8,
-            'birth_month'  => 211.6,
-            'birth_day'    => 219.3,
-            'age'          => 229.6,
-            'cash'         => 244.6,
-            'prop'         => 280.4,
-            'ksum'         => 316.6,
+            'name'         => 51.0,
+            'gender'       => 80.5,
+            'rel'          => 91.0,
+            'yousi'        => 111.0,
+            'souzoku'      => 135.0,
+            'civil_share'  => 160.0,
+            'houtei_share' => 176.0,            
+            'birth_year'   => 210.8,
+            'birth_month'  => 220.6,
+            'birth_day'    => 228.3,
+            'age'          => 237.6,
+            'cash'         => 249.6,
+            'prop'         => 283.0,
+            'ksum'         => 317.6,
         ];
 
         $colW = [
@@ -93,19 +93,19 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         if ($assetInputMode === 'combined') {
 
                 $colX = [
-                    'name'         => 50.0,
-                    'gender'       => 85.0,
-                    'rel'          => 96.0,
-                    'yousi'        => 120.5,
-                    'souzoku'      => 148.5,
-                    'civil_share'  => 181.5,
-                    'houtei_share' => 197.7,            
-                    'birth_year'   => 217.8,
-                    'birth_month'  => 227.6,
-                    'birth_day'    => 235.3,
-                    'age'          => 249.0,
-                    'cash'         => 250.0,
-                    'prop'         => 265.0,
+                    'name'         => 47.5,
+                    'gender'       => 80.0,
+                    'rel'          => 91.0,
+                    'yousi'        => 113.5,
+                    'souzoku'      => 139.5,
+                    'civil_share'  => 168.5,
+                    'houtei_share' => 185.7,            
+                    'birth_year'   => 224.8,
+                    'birth_month'  => 235.6,
+                    'birth_day'    => 242.3,
+                    'age'          => 254.0,
+                    'cash'         => 258.0,
+                    'prop'         => 268.0,
                     'ksum'         => 280.0,
                 ];
 
@@ -132,6 +132,25 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
             $colX[$key] = $value + $familyTableOffsetX;
         }
         $startY += $familyTableOffsetY;
+        
+        
+        // 「2割加算」「特例贈与」列は、
+        // 税法上割合の右端〜生年月日の左端の間を2分割して印字位置を決める。
+        // split / combined の両テンプレートで同じロジックを使えるように
+        // ここで動的に列座標を計算する。
+        $familyCheckColOuterGap = 0.5;
+        $familyCheckColInnerGap = 0.4;
+        $familyCheckAreaW = $colX['birth_year'] - ($colX['houtei_share'] + $colW['houtei_share']);
+        if ($familyCheckAreaW > 0) {
+            $familyCheckCellW = max(
+                ($familyCheckAreaW - ($familyCheckColOuterGap * 2) - $familyCheckColInnerGap) / 2,
+                4.0
+            );
+            $colX['twenty_percent_add'] = $colX['houtei_share'] + $colW['houtei_share'] + $familyCheckColOuterGap;
+            $colW['twenty_percent_add'] = $familyCheckCellW;
+            $colX['tokurei_zouyo']      = $colX['twenty_percent_add'] + $colW['twenty_percent_add'] + $familyCheckColInnerGap;
+            $colW['tokurei_zouyo']      = $familyCheckCellW;
+        }        
 
 
         $relationships = config('relationships');
@@ -244,6 +263,27 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
                     $x,
                     $y
                 );
+            }
+
+
+            // ２割加算
+            if ($hasName && isset($colX['twenty_percent_add'], $colW['twenty_percent_add'])) {
+                $isTwentyPercentAdd = $this->isCheckedFlag(
+                    $row['twenty_percent_add'] ?? ($row['surcharge_twenty_percent'] ?? null)
+                );
+
+                if ($isTwentyPercentAdd) {
+                    $this->renderFamilyCheckMark($pdf, $colX['twenty_percent_add'], $y, $colW['twenty_percent_add']);
+                }
+            }
+
+            // 特例贈与
+            if ($hasName && isset($colX['tokurei_zouyo'], $colW['tokurei_zouyo'])) {
+                $isTokureiZouyo = $this->isCheckedFlag($row['tokurei_zouyo'] ?? null);
+
+                if ($isTokureiZouyo) {
+                    $this->renderFamilyCheckMark($pdf, $colX['tokurei_zouyo'], $y, $colW['tokurei_zouyo']);
+                }
             }
 
 
@@ -1301,6 +1341,42 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
     // ============================================================
     // STEP3 削除対象ここまで
     // ============================================================
+
+
+    //  ２割加算　特例贈与のチェックマーク
+    private function renderFamilyCheckMark(TCPDF $pdf, float $x, float $y, float $w): void
+    {
+        $pdf->SetFont('mspgothic03', '', 11);
+        $pdf->MultiCell(
+            $w,
+            10,
+            '✓',
+            0,
+            'C',
+            0,
+            0,
+            $x,
+            $y + 0.1
+        );
+        $pdf->SetFont('mspgothic03', '', 9);
+    }
+
+    private function isCheckedFlag($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (int)$value === 1;
+        }
+
+        $normalized = trim((string)$value);
+        $normalized = function_exists('mb_strtolower') ? mb_strtolower($normalized, 'UTF-8') : strtolower($normalized);
+
+        return in_array($normalized, ['1', 'true', 'on', 'yes', 'checked'], true);
+    }
+
 
 
     private function resolveRelationshipFontSize(string $label): float
