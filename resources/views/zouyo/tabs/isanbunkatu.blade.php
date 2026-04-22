@@ -519,7 +519,7 @@
 
           <?php $i = 3; ?>
           <tr>
-            <td colspan="3" class="text-center" style="font-weight: bold;">所有財産（合計）</td>
+            <td colspan="3" class="text-center" style="font-weight: bold;">合　　計</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text"
@@ -542,7 +542,7 @@
               }
           @endphp
           <tr>
-            <td colspan="3" class="text-start" style="font-weight: bold;">生前贈与加算</td>
+            <td colspan="3" class="text-start" style="font-weight: bold;">生前贈与加算額</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -556,7 +556,7 @@
           {{-- 合計（所有財産 + 生前贈与加算） --}}
           <?php $i = 5; ?>
           <tr>
-            <td colspan="3" class="text-center" style="font-weight: bold;">課税価格 合計</td>
+            <td colspan="3" class="text-center" style="font-weight: bold;">課　税　価　格</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"
@@ -834,7 +834,7 @@
 
           <?php $i = 16; ?>
           <tr>
-            <td colspan="2" class="text-center" style="font-weight: bold;">控除税額合計</td>
+            <td colspan="2" class="text-center" style="font-weight: bold;">合　計</td>
             <td class="text-center">{{ $i }}</td>
             @php
               $__sumCredits = (int)($calc['summary']['total_gift_tax_credits'] ?? 0)

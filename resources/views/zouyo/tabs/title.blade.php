@@ -347,7 +347,7 @@
     <div class="asset-input-mode-box">
       <label>
         <input type="radio" name="asset_input_mode" value="split" @checked($assetInputMode === 'split')>
-        金融資産を入力する
+        金融資産を分けて入力する
       </label>
       <label>
         <input type="radio" name="asset_input_mode" value="combined" @checked($assetInputMode === 'combined')>
@@ -439,7 +439,7 @@
             <th rowspan="2">養子縁組</th>
             <th rowspan="2">相続人の区分</th>
             <th colspan="6">法定相続割合</th>
-            <th rowspan="2">2割加算</th>
+            <th rowspan="2">２割加算</th>
             <th rowspan="2">特例贈与</th>
             <th colspan="3" rowspan="2">生年月日</th>
             <th rowspan="2">年 齢</th>

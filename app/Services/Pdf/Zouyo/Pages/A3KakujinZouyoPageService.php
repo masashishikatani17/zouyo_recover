@@ -13,6 +13,7 @@ use App\Models\PastGiftSettlementEntry;
 use App\Models\ZouyoGeneralRate;
 use App\Models\ZouyoTokureiRate;
 
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -130,6 +131,15 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
                 'recipient_no'   => $recipientNo,
                 'recipient_name' => $nameFromFamily,
                 'tokurei_flag'   => (int)($familyRows[$recipientNo]->tokurei_zouyo ?? 0),
+                // ★重要：
+                // calendar_tax_override_enabled は FutureGiftRecipient に保存される。
+                // prefillFuture['header'] は「直近更新の1受贈者」分しか入らないため、
+                // A3では受贈者ごとにDB値を持ち回る。
+                'calendar_tax_override_enabled' => (int)(
+                    $r->calendar_tax_override_enabled
+                    ?? $r->calendar_basic_override_enabled
+                    ?? 0
+                ),                
             ];
         }
 
@@ -167,7 +177,8 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
                     $group[0],
                     $deathYear,                    
                     $birthByRow,
-                    $inputAgeByRow,                    
+                    $inputAgeByRow,  
+                    $payload,                    
                     $prefillFuture,
                     $rateYearGeneral,
                     $rateYearTokurei,
@@ -183,7 +194,8 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
                     $group[1],
                     $deathYear,                    
                     $birthByRow,
-                    $inputAgeByRow,                    
+                    $inputAgeByRow,  
+                    $payload,                    
                     $prefillFuture,
                     $rateYearGeneral,
                     $rateYearTokurei,
@@ -205,7 +217,8 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
         array $info,
         int $deathYear,        
         array $birthByRow,
-        array $inputAgeByRow,        
+        array $inputAgeByRow, 
+        array $payload,        
         array $prefillFuture,
         int $rateYearGeneral,
         int $rateYearTokurei,
@@ -214,6 +227,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
         $recipientNo   = (int)($info['recipient_no'] ?? 0);
         $recipientName = (string)($info['recipient_name'] ?? '');
         $tokureiFlag   = (int)($info['tokurei_flag'] ?? 0);
+        $calendarTaxOverrideEnabled = (int)($info['calendar_tax_override_enabled'] ?? 0) === 1;
 
 
         // 念のための最終ガード：
@@ -356,19 +370,7 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
             ->where('data_id', $dataId)
             ->where('recipient_no', $recipientNo)
             ->orderBy('row_no')
-            ->get([
-                'row_no',
-                'gift_year',
-                'calendar_amount_thousand',
-                'calendar_basic_deduction_thousand',
-                'calendar_add_cum_thousand',
-                'settlement_amount_thousand',
-                'settlement_110k_basic_thousand',
-                'settlement_after_basic_thousand',
-                'settlement_after_25m_thousand',
-                'settlement_tax20_thousand',
-                'settlement_add_cum_thousand',
-            ]);
+            ->get();
 
         $plans = [];
         foreach ($planRows as $row) {
@@ -426,7 +428,44 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
             $calBasicInK = $toInt($plan->calendar_basic_deduction_thousand ?? 0);
             $calBasicK   = (int)min($calAmountK, $calBasicInK);
             $calAfterK   = max(0, $calAmountK - $calBasicK);
-            $calTaxK     = $this->calcGiftTaxKyen($calAfterK, $isTokurei, $rateYear);
+
+            if ($calendarTaxOverrideEnabled) {
+                // ★税額overrideは行データに保存される値を最優先
+                $overrideRaw = $plan->calendar_tax_override_thousand ?? null;
+
+                // 未保存時だけ payload / prefill へフォールバック
+                if ($overrideRaw === null || $overrideRaw === '') {
+                    $overrideRaw = $this->resolveA3PayloadValue(
+                        $payload,
+                        'calendar_tax_override_thousand',
+                        $recipientNo,
+                        $i
+                    );
+                }
+                if (($overrideRaw === null || $overrideRaw === '') && !empty($prefillFuture)) {
+                    $overrideRaw = $this->resolveA3PlanArrayValue(
+                        $prefillFuture,
+                        'calendar_tax_override_thousand',
+                        $recipientNo,
+                        $i
+                    );
+                }
+                if (($overrideRaw === null || $overrideRaw === '') && !empty($prefillFuture)) {
+                    $overrideRaw = $this->getPrefillFutureValue(
+                        $prefillFuture,
+                        $recipientNo,
+                        $i,
+                        ['calendar_tax_override_thousand', 'cal_tax', 'calendar_tax', 'calendar_tax_thousand']
+                    );
+                }
+
+                $calTaxK = ($overrideRaw === null || $overrideRaw === '')
+                    ? 0
+                    : $toInt($overrideRaw);
+            } else {
+                $calTaxK = $this->calcGiftTaxKyen($calAfterK, $isTokurei, $rateYear);
+            }
+
 
             $calCumRaw = $plan->calendar_add_cum_thousand ?? null;
             if ($calCumRaw === null || $calCumRaw === '') {
@@ -1016,6 +1055,267 @@ class A3KakujinZouyoPageService implements ZouyoPdfPageInterface
 
         return null;
     }
+
+    /**
+     * 画面で編集中の受贈者Noを推定する。
+     * 1次元配列(plan.xxx[t])を読むときだけ使用。
+     */
+    private function resolveA3ActiveRecipientNo(array $payload): ?int
+    {
+        foreach ([
+            'recipient_no',
+            'current_recipient_no',
+            'target_recipient_no',
+            'selected_recipient_no',
+            'active_recipient_no',
+        ] as $key) {
+            $no = (int) data_get($payload, $key, 0);
+            if ($no >= 2 && $no <= 10) {
+                return $no;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * payload 本体から override系の値を拾う。
+     * - *_all[recipient][t]
+     * - field[recipient][t]
+     * - plan.* 側
+     * - 編集中受贈者だけ field[t] / plan.field[t]
+     * - rowNo / rowNo-1 の両方を見る（0始まり対策）
+     */
+    private function resolveA3PayloadValue(
+        array $payload,
+        string $field,
+        int $recipientNo,
+        int $rowNo
+    ) {
+        $indexes = array_values(array_unique([$rowNo, $rowNo - 1]));
+        $candidates = [];
+
+        foreach ($indexes as $index) {
+            if ($index < 0) {
+                continue;
+            }
+
+            $candidates[] = data_get($payload, "{$field}_all.{$recipientNo}.{$index}");
+            $candidates[] = data_get($payload, "{$field}.{$recipientNo}.{$index}");
+            $candidates[] = data_get($payload, "plan.{$field}_all.{$recipientNo}.{$index}");
+            $candidates[] = data_get($payload, "plan.{$field}.{$recipientNo}.{$index}");
+        }
+
+        $activeRecipientNo = $this->resolveA3ActiveRecipientNo($payload);
+        if ($activeRecipientNo === $recipientNo) {
+            foreach ($indexes as $index) {
+                if ($index < 0) {
+                    continue;
+                }
+
+                $candidates[] = data_get($payload, "{$field}.{$index}");
+                $candidates[] = data_get($payload, "plan.{$field}.{$index}");
+            }
+        }
+
+        foreach ($candidates as $raw) {
+            if ($raw !== null && $raw !== '') {
+                return $raw;
+            }
+        }
+
+        return null;
+    }
+
+
+
+    /**
+     * A3用：plan配列系の値を安全に拾う
+     * - prefillFuture['plan'][field][rowNo]
+     * - prefillFuture['plan'][field][rowNo-1]
+     * - prefillFuture['plan'][field][recipientNo][rowNo]
+     * - prefillFuture['plan'][field][recipientNo][rowNo-1]
+     * - 念のため top-level 側も確認
+     */
+    private function resolveA3PlanArrayValue(
+        array $prefillFuture,
+        string $field,
+        int $recipientNo,
+        int $rowNo
+    ) {
+        $candidates = [
+            data_get($prefillFuture, "plan.{$field}.{$rowNo}"),
+            data_get($prefillFuture, 'plan.' . $field . '.' . ($rowNo - 1)),
+            data_get($prefillFuture, "plan.{$field}.{$recipientNo}.{$rowNo}"),
+            data_get($prefillFuture, 'plan.' . $field . '.' . $recipientNo . '.' . ($rowNo - 1)),
+            data_get($prefillFuture, "{$field}.{$rowNo}"),
+            data_get($prefillFuture, $field . '.' . ($rowNo - 1)),
+            data_get($prefillFuture, "{$field}.{$recipientNo}.{$rowNo}"),
+            data_get($prefillFuture, $field . '.' . $recipientNo . '.' . ($rowNo - 1)),
+        ];
+
+        foreach ($candidates as $raw) {
+            if ($raw !== null && $raw !== '') {
+                return $raw;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A3用：暦年贈与税overrideの生値を取得する
+     * - DB保存値を優先
+     * - enabled は header 側も確認
+     * - amount は plan配列 / row配列 / cal_tax 表示値まで拾う
+     */
+    private function resolveA3CalendarOverrideRaw(
+        ?FutureGiftPlanEntry $plan,
+        array $payload,        
+        array $prefillFuture,
+        int $recipientNo,
+        int $rowNo,
+        string $field
+    ) {
+
+
+        if ($field === 'calendar_tax_override_enabled') {
+
+
+            // 1. 現在のPOST値を最優先
+            foreach ([
+                data_get($payload, "header.{$field}"),
+                is_array(data_get($payload, $field)) ? null : data_get($payload, $field),
+                data_get($prefillFuture, "header.{$field}"),
+                is_array(data_get($prefillFuture, $field)) ? null : data_get($prefillFuture, $field),
+            ] as $raw) {
+                if ($raw !== null && $raw !== '') {
+                    return $raw;
+                }
+            }
+    
+            $payloadRaw = $this->resolveA3PayloadValue($payload, $field, $recipientNo, $rowNo);
+            if ($payloadRaw !== null && $payloadRaw !== '') {
+                return $payloadRaw;
+            }
+    
+    
+            $headerRaw = data_get($prefillFuture, "header.{$field}");
+            if ($headerRaw !== null && $headerRaw !== '') {
+                return $headerRaw;
+            }
+
+            $planRaw = $this->resolveA3PlanArrayValue($prefillFuture, $field, $recipientNo, $rowNo);
+            if ($planRaw !== null && $planRaw !== '') {
+                return $planRaw;
+            }
+
+            $rowRaw = $this->getPrefillFutureValue($prefillFuture, $recipientNo, $rowNo, [$field]);
+            if ($rowRaw !== null && $rowRaw !== '') {
+                return $rowRaw;
+            }
+
+        }
+
+        if ($field === 'calendar_tax_override_thousand') {
+            foreach ([
+                'calendar_tax_override_thousand',
+                // 画面表示済み税額の救済
+                'cal_tax',
+                'calendar_tax',
+                'calendar_tax_thousand',
+            ] as $candidateField) {
+                
+                
+                $payloadRaw = $this->resolveA3PayloadValue($payload, $candidateField, $recipientNo, $rowNo);
+                if ($payloadRaw !== null && $payloadRaw !== '') {
+                    return $payloadRaw;
+                }
+
+
+                $planRaw = $this->resolveA3PlanArrayValue($prefillFuture, $candidateField, $recipientNo, $rowNo);
+                if ($planRaw !== null && $planRaw !== '') {
+                    return $planRaw;
+                }
+
+                $rowRaw = $this->getPrefillFutureValue($prefillFuture, $recipientNo, $rowNo, [$candidateField]);
+                if ($rowRaw !== null && $rowRaw !== '') {
+                    return $rowRaw;
+                }
+            }
+        }
+
+
+        // 2. 最後にDB保存値へフォールバック
+        //    ※ DBの 0 が先に返ると、画面の最新override値が潰れるため最後に回す
+        if ($plan) {
+            $attrs = method_exists($plan, 'getAttributes') ? (array) $plan->getAttributes() : [];
+            if (array_key_exists($field, $attrs) && $attrs[$field] !== null && $attrs[$field] !== '') {
+                return $attrs[$field];
+            }
+        }
+
+        return $this->getPrefillFutureValue($prefillFuture, $recipientNo, $rowNo, [$field]);
+     
+    }
+
+
+
+
+    private function isA3CalendarTaxOverrideEnabled(
+        ?FutureGiftPlanEntry $plan,
+        array $payload,        
+        array $prefillFuture,
+        int $recipientNo,
+        int $rowNo
+    ): bool {
+        $raw = $this->resolveA3CalendarOverrideRaw(
+            $plan,
+            $payload,            
+            $prefillFuture,
+            $recipientNo,
+            $rowNo,
+            'calendar_tax_override_enabled'
+        );
+
+        if ($raw === null || $raw === '') {
+            return false;
+        }
+        if (is_bool($raw)) {
+            return $raw;
+        }
+        if (is_numeric($raw)) {
+            return ((int)$raw) === 1;
+        }
+
+        $s = Str::lower(trim((string)$raw));
+        return in_array($s, ['1', 'true', 'on', 'yes'], true);
+    }
+
+    private function resolveA3CalendarTaxOverrideK(
+        ?FutureGiftPlanEntry $plan,
+        array $payload,        
+        array $prefillFuture,
+        int $recipientNo,
+        int $rowNo
+    ): int {
+        $raw = $this->resolveA3CalendarOverrideRaw(
+            $plan,
+            $payload,            
+            $prefillFuture,
+            $recipientNo,
+            $rowNo,
+            'calendar_tax_override_thousand'
+        );
+
+        if ($raw === null || $raw === '') {
+            return 0;
+        }
+
+        $normalized = preg_replace('/[^\d\-]/u', '', (string)$raw) ?? '0';
+        return max(0, (int)$normalized);
+    }
+
 
 
  

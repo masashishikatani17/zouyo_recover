@@ -693,13 +693,13 @@
           <th>基礎控除</th>
           <th>基礎控除後</th>
           <th id="cal-tax-header">(一般税率)<br>贈与税額</th>          
-          <th>贈与加算<br>累計額</th>
+          <th>生前贈与<br>加算額</th>
           <th class="future-edit-col-header">贈与額</th>
           <th id="set-basic-deduction-header">{{ number_format($giftBasicDeductionK / 10) }}万円<br>基礎控除</th>
           <th>基礎控除後</th>
           <th>2500万円<br>特別控除後</th>
           <th>20%の<br>贈与税額</th>
-          <th>贈与加算<br>累計額</th>
+          <th>生前贈与<br>加算額</th>
         </tr>
       <tbody>
         <tr>
@@ -960,13 +960,14 @@
             <input type="text" class="form-control suji7 comma decimal0 future-field-calc" name="set_tax20[110]" style="background-color: #f0f0f0;" readonly tabindex="-1">
           </td>
           <td class="border px-1 py-1"></td>
+          <td class="border px-1 py-1"></td>
         </tr>
       </tbody>
     </table>
   <table class="g-table--none mt-3 margin-right: auto" style="width: 860px;">
       <colgroup>
-        <col style="width:10px;">
-        <col style="width:850px;">
+        <col style="width: 20px;">
+        <col style="width:840px;">
       </colgroup>
       <tr>
         <td class="text-end pe-3 va-top">１．</td>
@@ -977,7 +978,7 @@
        <tr>
         <td class="text-end pe-3 va-top">２．</td>
         <td class="text-start">
-         贈与加算累計額は贈与がなかったものとして相続財産に加算される額のことですが、既に納付済みの贈与税は相続税から控除されます。また控除しきれない場合には還付されます(ただし精算課税贈与の場合のみ)。
+         生前贈与加算額は贈与がなかったものとして相続財産に加算される額のことですが、既に納付済みの贈与税は相続税から控除されます。また控除しきれない場合には還付されます(ただし精算課税贈与の場合のみ)。
         </td>
       </tr>
        <tr>
@@ -989,7 +990,7 @@
       <tr>
         <td class="text-end pe-3 va-top">４．</td>
         <td class="text-start">
-          ここに計算表示されている暦年贈与の贈与加算累計額は3年超の贈与に適用される100万円控除を適用済みです。
+          ここに計算表示されている暦年贈与の生前贈与加算額は3年超の贈与に適用される100万円控除を適用済みです。
         </td>
       </tr>
   </table>

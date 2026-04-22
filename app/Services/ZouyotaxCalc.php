@@ -9033,30 +9033,120 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
 
 
     /**
+     * 画面で編集中の受贈者Noを推定する。
+     * ※ 1次元配列(calendar_tax_override_thousand[t])を読むときだけ使用。
+     */
+    private function resolveFuturePlanActiveRecipientNo(array $payload): ?int
+    {
+        foreach ([
+            'recipient_no',
+            'current_recipient_no',
+            'target_recipient_no',
+            'selected_recipient_no',
+            'active_recipient_no',
+        ] as $key) {
+            $no = (int) Arr::get($payload, $key, 0);
+            if ($no >= 2 && $no <= 10) {
+                return $no;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * 暦年贈与税override用の生値を取得する。
+     * - DB保存値を最優先
+     * - 未保存時は payload の *_all[recipient][t] / [recipient][t] / （編集中受贈者のみ）[t] を参照
+     */
+    private function resolveFutureCalendarOverrideRaw(FutureGiftPlanEntry $r, array $payload, string $field)
+    {
+        $attrs = method_exists($r, 'getAttributes') ? (array) $r->getAttributes() : [];
+        if (array_key_exists($field, $attrs) && $attrs[$field] !== null && $attrs[$field] !== '') {
+            return $attrs[$field];
+        }
+
+        $recipientNo = (int) ($r->recipient_no ?? 0);
+        $t = $this->normalizeFuturePlanT((int) ($r->row_no ?? 0));
+
+        $candidates = [
+            Arr::get($payload, "{$field}_all.{$recipientNo}.{$t}"),
+            Arr::get($payload, "{$field}.{$recipientNo}.{$t}"),
+            Arr::get($payload, "plan.{$field}_all.{$recipientNo}.{$t}"),
+            Arr::get($payload, "plan.{$field}.{$recipientNo}.{$t}"),
+        ];
+
+        $activeRecipientNo = $this->resolveFuturePlanActiveRecipientNo($payload);
+        if ($activeRecipientNo === $recipientNo) {
+            $candidates[] = Arr::get($payload, "{$field}.{$t}");
+            $candidates[] = Arr::get($payload, "plan.{$field}.{$t}");
+        }
+
+        foreach ($candidates as $raw) {
+            if ($raw !== null && $raw !== '') {
+                return $raw;
+            }
+        }
+
+        return null;
+    }
+
+    private function isFutureCalendarTaxOverrideEnabled(FutureGiftPlanEntry $r, array $payload = []): bool
+    {
+        $raw = $this->resolveFutureCalendarOverrideRaw($r, $payload, 'calendar_tax_override_enabled');
+        if ($raw === null || $raw === '') {
+            return false;
+        }
+        if (is_bool($raw)) {
+            return $raw;
+        }
+        if (is_numeric($raw)) {
+            return ((int) $raw) === 1;
+        }
+
+        $s = Str::lower(trim((string) $raw));
+        return in_array($s, ['1', 'true', 'on', 'yes'], true);
+    }
+
+    private function resolveFutureCalendarTaxOverrideK(FutureGiftPlanEntry $r, array $payload = []): int
+    {
+        $raw = $this->resolveFutureCalendarOverrideRaw($r, $payload, 'calendar_tax_override_thousand');
+        if ($raw === null || $raw === '') {
+            return 0;
+        }
+
+        $normalized = preg_replace('/[^\d\-]/u', '', (string) $raw) ?? '0';
+        return max(0, (int) $normalized);
+    }
+
+    /**
      * FutureGiftPlanEntry から「暦年贈与税（千円）」を安全に取り出す。
-     * - 列名揺れを吸収（special / general / normal / legacy）
-     * - それでも 0 の場合は attributes を走査して自動検出（1人分だけ税額が欠ける対策）
+     * - calendar_tax_override_enabled が ON のときは、
+     *   cal_tax / 再計算ではなく calendar_tax_override_thousand をそのまま採用する
+     * - それ以外は従来どおり現在の一般/特例区分で再計算する
      */
     private function resolveFutureCalendarTaxK(FutureGiftPlanEntry $r, array $payload = []): int
     {
+        $amountK = (int) ($r->calendar_amount_thousand ?? 0);
+        $recipientNo = (int) ($r->recipient_no ?? 0);
+        $dataId = (int) ($r->data_id ?? ($payload['data_id'] ?? 0));
 
-        $amountK = (int)($r->calendar_amount_thousand ?? 0);
-        $recipientNo = (int)($r->recipient_no ?? 0);
-        $dataId = (int)($r->data_id ?? ($payload['data_id'] ?? 0));
-
-        // ★重要
-        // 相続税側の贈与税額控除は、保存済みの calendar_tax_thousand 等を信用せず、
-        // 現在の「一般/特例区分」から毎回再計算する。
-        // これにより、家族構成画面で一般→特例へ変更した直後でも、
-        // PDFの相続税側控除額が古い一般税率のまま残る不整合を防ぐ。
         if ($amountK > 0 && $recipientNo >= 2 && $recipientNo <= 10) {
+            if ($this->isFutureCalendarTaxOverrideEnabled($r, $payload)) {
+                return $this->resolveFutureCalendarTaxOverrideK($r, $payload);
+            }
+
+            // ★重要
+            // 相続税側の贈与税額控除は、保存済みの calendar_tax_thousand 等を信用せず、
+            // 現在の「一般/特例区分」から毎回再計算する。
+            // これにより、家族構成画面で一般→特例へ変更した直後でも、
+            // PDFの相続税側控除額が古い一般税率のまま残る不整合を防ぐ。
             $afterK = max($amountK - $this->resolveGiftBasicDeductionK($payload), 0);
             $isTokurei = $this->resolveTokureiRecipientFlag($payload, $dataId, $recipientNo);
             return $this->calcCalendarGiftTaxK($afterK, $isTokurei);
         }
 
         return 0;
-
     }
 
     /**
@@ -9337,11 +9427,10 @@ Log::warning('[ZouyotaxCalc][settlement_ref_check]', [
                 }
 
                 // 暦年贈与税（千円）
-                $calTaxK = 0; // ★未定義防止
-                $afterK  = max($amtK - 1100, 0);
-                $isTok   = $this->resolveTokureiRecipientFlag($payload, $dataId, (int)$r->recipient_no);
-                $calTaxK = $this->calcCalendarGiftTaxK($afterK, $isTok);
-
+                // ★override ON のときは calendar_tax_override_thousand を優先
+                $calTaxK = $this->resolveFutureCalendarTaxK($r, $payload);
+                
+                
                 /*
                 Log::debug('2026.01.23 1000000-3', [
                     'dataId'                  => $dataId,
