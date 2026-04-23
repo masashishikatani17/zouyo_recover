@@ -1942,6 +1942,17 @@ Log::debug('PDF selected pages in makeInputContext', [
                 $put('settlement_after_25m_thousand',     $this->toThousand($request->input("set_after_25m.$i")));
                 $put('settlement_tax20_thousand',         $this->toThousand($request->input("set_tax20.$i")));
                 
+
+                // ★ 贈与額は空欄を明示クリアとして扱う。
+                //    recipient 切替時 autosave では '' が送られるため、
+                //    $put() だけだと既存値が残ってしまう。
+                if (array_key_exists($i, $arrCalAmount)) {
+                    $updates['calendar_amount_thousand'] = $this->toThousand($arrCalAmount[$i]);
+                }
+                if (array_key_exists($i, $arrSetAmount)) {
+                    $updates['settlement_amount_thousand'] = $this->toThousand($arrSetAmount[$i]);
+                }
+
                 
 
                 // ★ 空欄クリアを許可する項目は、送信されていれば null でも明示更新する
@@ -1952,7 +1963,20 @@ Log::debug('PDF selected pages in makeInputContext', [
                     $updates['settlement_basic_override_thousand'] = $this->toThousand($arrSetBasicOverride[$i]);
                 }                
                 
-                
+
+
+                $hasMeaningfulFutureInput = false;
+                foreach ([
+                    'calendar_amount_thousand',
+                    'calendar_tax_override_thousand',
+                    'settlement_amount_thousand',
+                    'settlement_basic_override_thousand',
+                ] as $col) {
+                    if (array_key_exists($col, $updates) && $updates[$col] !== null && $updates[$col] !== '') {
+                        $hasMeaningfulFutureInput = true;
+                        break;
+                    }
+                }                
                 
                 // ★★★ 追加：精算課税の実際の贈与税額を保存する（これが欠けていた） ★★★
                 // UI の "set_tax20.$i" が 20％税額なので、それを settlement_tax_thousand に保存する。
@@ -2134,12 +2158,18 @@ if ($i == 1){
  
 
 
-                \App\Models\FutureGiftPlanEntry::unguarded(function () use ($dataId, $recipientNo, $i, $updates) {
+                \App\Models\FutureGiftPlanEntry::unguarded(function () use ($dataId, $recipientNo, $i, $updates, $hasMeaningfulFutureInput) {
                     $row = \App\Models\FutureGiftPlanEntry::firstOrNew([
                         'data_id' => (int)$dataId,
                         'recipient_no' => (int)$recipientNo,
                         'row_no' => (int)$i,
                     ]);
+                    
+                    // ★ 空欄送信だけで新規の空レコードを作らない
+                    if (! $row->exists && $i !== 0 && ! $hasMeaningfulFutureInput) {
+                        return;
+                    }
+
                     if (!empty($updates)) {
                         $row->fill($updates)->save();
                     }
@@ -4584,7 +4614,9 @@ Log::debug('[FG DEBUG] set_tax20 full request', [
                 'cal_amount','cal_basic','calendar_tax_override_thousand','cal_after_basic','cal_tax','cal_cum',
                 'set_amount','set_basic110','settlement_basic_override_thousand','set_after_basic','set_after_25m','set_tax20','set_cum'
             ] as $k){
-                if ($r->has("{$k}.{$i}")) return true;
+
+                if ($r->exists("{$k}.{$i}")) return true;
+
             }
         }
         return false;

@@ -551,7 +551,7 @@
           {{-- 合計（所有財産 + 生前贈与加算） --}}
           <?php $i = 5; ?>
           <tr>
-            <td colspan="3" class="text-center" style="font-weight: bold;">課　税　価　格</td>
+            <td colspan="3" class="text-center" style="font-weight: bold;">課税価格</td>
             <td class="text-center">{{ $i }}</td>
             <td>
               <input type="text" class="form-control suji8 comma decimal0"

@@ -285,16 +285,115 @@
 
   .future-inline-switch {
     position: relative;
+    width: 100%;    
   }
 
   .future-inline-switch__auto,
   .future-inline-switch__manual {
+    display: block;    
     width: 100%;
+    margin: 0 !important;
+    box-sizing: border-box;    
   }
 
   .future-inline-switch__manual {
     display: none;
   }
+  
+
+  /* 贈与税額修正 / 基礎控除額修正 の手入力欄は、
+     ON/OFF切替時に自動欄と同じ位置・同じ幅に見えるよう枠幅を揃える */
+  .future-inline-switch__manual.future-field-input,
+  .future-inline-switch__manual.future-basic-override-input-readonly {
+    border-width: 1px !important;
+  }
+
+  /* 入力可能時の強調色は残す */
+  .future-inline-switch__manual.future-field-input {
+    box-shadow: none !important;
+    border-color: #d4a72c !important;
+  }
+
+
+  /* 贈与税額欄・110万円基礎控除額欄の桁位置をそろえる */
+  .future-digit-align {
+    text-align: right !important;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+
+  /* 贈与税額欄・110万円基礎控除額欄は、
+     既存の suji7 / suji8 幅に合わせて固定する */
+  #future-gift-table td.future-tax-cell,
+  #future-gift-table td.future-basic110-cell {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* 過年度分の合計 / 合計行（直接 input） */
+  #future-gift-table td.future-tax-cell > .form-control {
+    width: 66px !important;
+    min-width: 66px !important;
+    max-width: 66px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  #future-gift-table td.future-basic110-cell > .form-control {
+    width: 70px !important;
+    min-width: 70px !important;
+    max-width: 70px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  /* 1～20回行（switch 配下）は auto/manual を完全に同じ位置へ重ねる */
+  #future-gift-table td.future-tax-cell .future-inline-switch {
+    position: relative;
+    width: 66px !important;
+    min-width: 66px !important;
+    max-width: 66px !important;
+    height: 20px;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+  }
+
+  #future-gift-table td.future-basic110-cell .future-inline-switch {
+    position: relative;
+    width: 70px !important;
+    min-width: 70px !important;
+    max-width: 70px !important;
+    height: 20px;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+  }
+
+  #future-gift-table td.future-tax-cell .future-inline-switch__auto,
+  #future-gift-table td.future-tax-cell .future-inline-switch__manual,
+  #future-gift-table td.future-basic110-cell .future-inline-switch__auto,
+  #future-gift-table td.future-basic110-cell .future-inline-switch__manual {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    height: 20px;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+  }
+
 
   .future-inline-switch.is-manual .future-inline-switch__auto {
     display: none;
@@ -673,7 +772,6 @@
         <col style="70px;">
         <col style="70px;">
         <col style="70px;">
-        <col style="70px;">
         <col style="70px;">        
       </colgroup>
         <tr class="bg-blue">
@@ -741,8 +839,8 @@
           </td>
 
 
-          <td class="border px-1 py-0">
-            <input type="text" class="form-control suji7 comma decimal0"
+          <td class="border px-1 py-0 future-tax-cell">
+            <input type="text" class="form-control suji7 comma decimal0 future-field-calc future-digit-align"
                    name="cal_tax[{{ $i }}]"
                    style="ime-mode: disabled; background-color: #f0f0f0;" 
                    readonly tabindex="-1" inputmode="numeric"
@@ -766,8 +864,9 @@
                    value="{{ old('set_amount.'.$i, isset($prefillFuture['plan']['set_amount'][$i]) ? number_format($prefillFuture['plan']['set_amount'][$i]) : '') }}">
           </td>
 
-          <td class="border px-1 py-0">
-          <input type="text" class="form-control suji8 comma decimal0 future-field-calc"            
+
+          <td class="border px-1 py-0 future-basic110-cell">
+            <input type="text" class="form-control suji8 comma decimal0 future-field-calc future-digit-align"            
                    name="set_basic110[{{ $i }}]" style="ime-mode: disabled; background-color: #f0f0f0;" readonly tabindex="-1" inputmode="numeric"
                    value="{{ old('set_basic110.'.$i, isset($prefillFuture['plan']['set_basic110'][$i]) ? number_format($prefillFuture['plan']['set_basic110'][$i]) : '') }}">
           </td>
@@ -856,12 +955,13 @@
             <input type="text" class="form-control suji8 comma decimal0 future-field-calc" name="cal_after_basic[{{ $i }}]" style="ime-mode: disabled; background-color: #f0f0f0;" readonly tabindex="-1" inputmode="numeric" >
           </td>
 
-          <td class="border px-1 py-0">
+
+          <td class="border px-1 py-0 future-tax-cell">
 
             <div class="future-inline-switch future-calendar-tax-switch" data-row="{{ $i }}">
               <input
                 type="text"
-                class="form-control suji7 comma decimal0 future-field-calc future-inline-switch__auto"
+                class="form-control suji7 comma decimal0 future-field-calc future-inline-switch__auto future-digit-align"
                 name="cal_tax[{{ $i }}]"
                 style="ime-mode: disabled; background-color: #f0f0f0;"
                 readonly
@@ -870,7 +970,7 @@
               >
               <input
                 type="text"
-                class="form-control suji7 comma decimal0 future-field-input future-basic-override-input-readonly future-inline-switch__manual"
+                class="form-control suji7 comma decimal0 future-field-input future-basic-override-input-readonly future-inline-switch__manual future-digit-align"
                 name="calendar_tax_override_thousand[{{ $i }}]"
                 style="ime-mode: disabled;"
                 inputmode="numeric"
@@ -891,12 +991,12 @@
             <input type="text" class="form-control suji8 comma decimal0 future-field-input" name="set_amount[{{ $i }}]" style="ime-mode: disabled;" inputmode="numeric" >
           </td>
 
-          <td class="border px-1 py-0">
-
+          <td class="border px-1 py-0 future-basic110-cell">
+  
             <div class="future-inline-switch future-settlement-basic-switch" data-row="{{ $i }}">
               <input
                 type="text"
-                class="form-control suji7 comma decimal0 future-field-calc future-inline-switch__auto"
+                class="form-control suji8 comma decimal0 future-field-calc future-inline-switch__auto future-digit-align"
                 name="set_basic110[{{ $i }}]"
                 style="ime-mode: disabled; background-color: #f0f0f0;"
                 readonly
@@ -905,7 +1005,7 @@
               >
               <input
                 type="text"
-                class="form-control suji7 comma decimal0 future-field-input future-basic-override-input-readonly future-inline-switch__manual"
+                class="form-control suji8 comma decimal0 future-field-input future-basic-override-input-readonly future-inline-switch__manual future-digit-align"
                 name="settlement_basic_override_thousand[{{ $i }}]"
                 style="ime-mode: disabled;"
                 inputmode="numeric"
@@ -943,8 +1043,8 @@
           </td>
           <td class="border px-1 py-1"></td>
           <td class="border px-1 py-1"></td>
-          <td class="border px-1 py-1">
-            <input type="text" class="form-control suji7 comma decimal0" name="cal_tax[110]" style=" background-color: #f0f0f0;" readonly tabindex="-1">
+          <td class="border px-1 py-1 future-tax-cell">
+            <input type="text" class="form-control suji7 comma decimal0 future-field-calc future-digit-align" name="cal_tax[110]" style=" background-color: #f0f0f0;" readonly tabindex="-1">
           </td>
           <td class="border px-1 py-1"></td>
           <td class="border px-1 py-1">
@@ -3617,8 +3717,15 @@ window.saveCurrentInputs = async function (saveUrl, options = {}) {
         const cbo = cboEl?.value ?? '';
         const sbo = sboEl?.value ?? '';
 
-        if (ca !== '') fd.set(`cal_amount[${i}]`, String(toInt(ca)));
-        if (sa !== '') fd.set(`set_amount[${i}]`, String(toInt(sa)));
+        const caRaw = String(ca ?? '').trim();
+        const saRaw = String(sa ?? '').trim();
+
+        // ★ 空欄も「明示クリア」として送る。
+        //    未送信だとサーバ側で既存値を保持してしまい、
+        //    受贈者を戻したときに古い贈与額が復活する。
+        fd.set(`cal_amount[${i}]`, caRaw === '' ? '' : String(toInt(caRaw)));
+        fd.set(`set_amount[${i}]`, saRaw === '' ? '' : String(toInt(saRaw)));
+
 
         if (cboEl) {
           const raw = String(cbo ?? '').trim();
