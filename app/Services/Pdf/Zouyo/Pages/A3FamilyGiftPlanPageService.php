@@ -1350,7 +1350,8 @@ class A3FamilyGiftPlanPageService implements ZouyoPdfPageInterface
         $pdf->MultiCell(
             $w,
             10,
-            '✓',
+            //'✓',
+            'ﾚ',
             0,
             'C',
             0,

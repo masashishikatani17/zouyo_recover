@@ -459,7 +459,7 @@
           {{-- 1行目（被相続人）※「番号・氏名」は左へ移動したのでここには置かない --}}
           <tr>
             <td>
-              <select class="form-control kana2 title-field-input" name="gender[1]">                
+              <select class="form-control kana2  text-center title-field-input" name="gender[1]">                
                 @php $g = old('gender.1', $prefillFamily[1]['gender'] ?? ''); @endphp
                 <option value="" @selected($g==='')></option>                
                 <option value="男" @selected($g==='男')>男</option>
