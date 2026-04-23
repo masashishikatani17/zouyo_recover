@@ -594,15 +594,11 @@
 
 
 
+    {{--
     <div class="future-legend">
       <span class="future-legend__chip future-legend__chip--input">入力欄</span>
-      
-      {{--
-      <span class="future-legend__chip future-legend__chip--ref">参照</span>
-      <span class="future-legend__chip future-legend__chip--calc">自動計算</span>
-      --}}
-      
     </div>
+    --}}
 
 
     <table class="future-basic-override-table">
