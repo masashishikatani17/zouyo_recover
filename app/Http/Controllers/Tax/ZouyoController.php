@@ -2611,9 +2611,16 @@ if ($i == 1){
                     ->first();
             }
 
-            $vOther = $this->toThousand($other[$no] ?? null);
-            $vCashShare  = $this->toThousand($cashShare[$no]  ?? null);
-            $vOtherShare = $this->toThousand($otherShare[$no] ?? null);
+            // ★ 空白クリア判定のため、送信有無を array_key_exists で持つ
+            $hasPostedManu       = array_key_exists($no, $manu);
+            $hasPostedAuto       = array_key_exists($no, $auto);
+            $hasPostedOther      = array_key_exists($no, $other);
+            $hasPostedCashShare  = array_key_exists($no, $cashShare);
+            $hasPostedOtherShare = array_key_exists($no, $otherShare);
+
+            $vOther      = $hasPostedOther      ? $this->toThousand($other[$no])      : null;
+            $vCashShare  = $hasPostedCashShare  ? $this->toThousand($cashShare[$no])  : null;
+
 
             // ★未定義防止：後段の closure で必ず使うので先に初期化
             $newAuto = null;
@@ -2622,34 +2629,44 @@ if ($i == 1){
             $newCashShare = null;
             $newOtherShare = null;
 
+
              if ($mode === 'manual') {
-                $vManu = $this->toThousand($manu[$no] ?? null);
+                $vManu = $hasPostedManu ? $this->toThousand($manu[$no]) : null;
                 $vAuto = $existing?->taxable_auto_value_thousand; // 既存autoは維持
  
-                 // 手入力モード：そのまま保存
-                $newCashShare  = $vCashShare;
-                $newOtherShare = $vOtherShare;
+                 // 手入力モード：送信されていれば空欄(null)も明示保存する
+                $newManu       = $hasPostedManu       ? $vManu       : ($existing?->taxable_manu_value_thousand ?? null);
+                $newOther      = $hasPostedOther      ? $vOther      : ($existing?->other_tax_credit_thousand ?? null);
+                $newCashShare  = $hasPostedCashShare  ? $vCashShare  : ($existing?->cash_share_value_thousand ?? null);
+                $newOtherShare = $hasPostedOtherShare ? $vOtherShare : ($existing?->other_asset_share_value_thousand ?? null);
+                $newAuto       = $vAuto;
 
-                if (
-                    $vManu === null &&
-                    $vAuto === null &&
-                    $vOther === null &&
-                    $vCashShare === null &&
-                    $vOtherShare === null
-                ) {
-                     continue;
-                 }
+                // ★ 手入力項目を全部空白にしたら既存行を削除して「空白状態」を保存
+                $manualAllBlank =
+                    $newManu === null &&
+                    $newOther === null &&
+                    $newCashShare === null &&
+                    $newOtherShare === null;
 
-                $newManu  = $vManu;
-                $newAuto  = $vAuto;
-                $newOther = $vOther;
+                if ($manualAllBlank) {
+                    if ($existing) {
+                        $existing->delete();
+                    }
+                    continue;
+                }
+
              } else {
                  $existingManu = $existing?->taxable_manu_value_thousand;
-                 $postedAuto = $this->toThousand($auto[$no] ?? null);
-                 $newAuto    = $postedAuto !== null ? $postedAuto : ($existing?->taxable_auto_value_thousand ?? null);
 
+                 $postedAuto = $hasPostedAuto ? $this->toThousand($auto[$no]) : null;
+
+                 // ★ auto は送信されていれば空欄(null)でも明示保存する
+                 $newAuto    = $hasPostedAuto ? $postedAuto : ($existing?->taxable_auto_value_thousand ?? null);
+ 
                  $newManu  = $existingManu;
-                 $newOther = $vOther ?? ($existing?->other_tax_credit_thousand ?? null);
+                 
+                 // ★ その他税額控除も送信されていれば空欄(null)で明示保存する
+                 $newOther = $hasPostedOther ? $vOther : ($existing?->other_tax_credit_thousand ?? null);
 
                 // 法定相続割合：手入力の金融/その他は壊さない
                 $newCashShare  = $existing?->cash_share_value_thousand ?? null;
@@ -2680,10 +2697,12 @@ if ($i == 1){
             }
 
             \App\Models\InheritanceDistributionMember::unguarded(function () use ($dataId, $no, $update) {
+
                 \App\Models\InheritanceDistributionMember::updateOrCreate(
                     ['data_id' => (int)$dataId, 'recipient_no' => (int)$no],
                     $update
                 );
+
             });
 
         }
