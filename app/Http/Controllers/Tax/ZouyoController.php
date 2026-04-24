@@ -816,19 +816,12 @@ Log::debug('PDF selected pages in makeInputContext', [
                     try {
 
                         // ★ 修正：
-                        //   - 「手入力」モードのときだけ、遺産分割(現時点)の課税価格を DB に保存する。
-                        //   - 「法定相続割合」モードのときは、DB に保存済みの手入力値を壊さないため
-                        //     storeInheritanceDistribution を呼ばない。
-                        //
-                        //   これにより、
-                        //   1) 手入力モードで「保存」または「計算開始」したときにだけ手入力値が保存される
-                        //   2) その後「法定相続割合」で「保存」や「計算開始」をしても、
-                        //      手入力時の値は上書きされず残る
-                        if ((string)$request->input('input_mode') === 'manual') {
-                            $this->storeInheritanceDistribution($data->id, $request);
-                        }
-
-
+                        //   その他税額控除額は auto/manual どちらでも保存対象。
+                        //   storeInheritanceDistribution() 側で
+                        //   - manual の手入力値保持
+                        //   - auto 時に手入力の金融/その他資産を壊さない
+                        // を吸収しているため、ここでは常に呼ぶ。
+                        $this->storeInheritanceDistribution($data->id, $request);
 
                     } catch (\Throwable $ex) {
                         $blockErrors[] = [
@@ -2611,16 +2604,20 @@ if ($i == 1){
                     ->first();
             }
 
-            // ★ 空白クリア判定のため、送信有無を array_key_exists で持つ
-            $hasPostedManu       = array_key_exists($no, $manu);
-            $hasPostedAuto       = array_key_exists($no, $auto);
-            $hasPostedOther      = array_key_exists($no, $other);
-            $hasPostedCashShare  = array_key_exists($no, $cashShare);
-            $hasPostedOtherShare = array_key_exists($no, $otherShare);
+            // ★ 空白クリア判定：
+            //   request->exists() を正とする。
+            //   array_key_exists() だけだと、フォーム送信形によっては
+            //   空白項目が未送信扱いになり、既存値へフォールバックして復活することがある。
+            $hasPostedManu       = $request->exists("id_taxable_manu.$no");
+            $hasPostedAuto       = $request->exists("id_taxable_auto.$no");
+            $hasPostedOther      = $request->exists("id_other_credit.$no");
+            $hasPostedCashShare  = $request->exists("id_cash_share.$no");
+            $hasPostedOtherShare = $request->exists("id_other_share.$no");
 
             $vOther      = $hasPostedOther      ? $this->toThousand($other[$no])      : null;
             $vCashShare  = $hasPostedCashShare  ? $this->toThousand($cashShare[$no])  : null;
-
++           $vOtherShare = $hasPostedOtherShare ? $this->toThousand($otherShare[$no]) : null;
+ 
 
             // ★未定義防止：後段の closure で必ず使うので先に初期化
             $newAuto = null;
@@ -2679,7 +2676,12 @@ if ($i == 1){
                     $newCashShare === null &&
                     $newOtherShare === null
                 ) {
-                     continue;
+
+                    if ($existing) {
+                        $existing->delete();
+                    }
+                    continue;
+
                  }
              }
 
@@ -2697,12 +2699,10 @@ if ($i == 1){
             }
 
             \App\Models\InheritanceDistributionMember::unguarded(function () use ($dataId, $no, $update) {
-
                 \App\Models\InheritanceDistributionMember::updateOrCreate(
                     ['data_id' => (int)$dataId, 'recipient_no' => (int)$no],
                     $update
                 );
-
             });
 
         }
@@ -3468,17 +3468,14 @@ if ($i == 1){
 
 
 
-        // ★ 遺産分割(現時点)：「手入力」モードのときだけ、手入力した課税価格を DB に保存
-        //
-        //   - input_mode = 'manual' のとき：
-        //       → id_taxable_manu[2..10] を InheritanceDistributionMember.taxable_manu_value_thousand に保存
-        //       → InheritanceDistributionHeader.method_code = 9（手入力）
-        //   - input_mode = 'auto' のとき：
-        //       → DB には書き込まず、Service 側の自動按分結果のみを使用
-        if ((string)$request->input('input_mode') === 'manual') {
-            $this->storeInheritanceDistribution($data->id, $request);
-        }
-        
+        // ★ 修正：
+        //   その他税額控除額は auto/manual どちらでも「計算開始」時に保存する。
+        //   storeInheritanceDistribution() 側で
+        //   - manual: 手入力値を保存
+        //   - auto  : 手入力の金融/その他資産は壊さず、その他税額控除額は保存/空白クリア
+        // を制御しているため、ここでも常に呼ぶ。
+        $this->storeInheritanceDistribution($data->id, $request);
+
 
         $this->touchDataUpdatedAt((int) $data->id);        
         
