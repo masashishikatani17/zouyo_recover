@@ -130,12 +130,39 @@ Route::middleware('auth')
 
         Route::post('/start', [\App\Http\Controllers\GiftHistory\GiftHistoryCaseController::class, 'start'])
             ->name('start');
+            
+            
+        Route::get('/{case}/family', [\App\Http\Controllers\GiftHistory\GiftHistoryFamilyController::class, 'edit'])
+            ->whereNumber('case')
+            ->name('family.edit');
+
+        Route::post('/{case}/family/import', [\App\Http\Controllers\GiftHistory\GiftHistoryFamilyController::class, 'importFromZouyo'])
+            ->whereNumber('case')
+            ->name('family.import');
+
+        Route::post('/{case}/family', [\App\Http\Controllers\GiftHistory\GiftHistoryFamilyController::class, 'update'])
+            ->whereNumber('case')
+            ->name('family.update');
+
 
         Route::get('/{case}', [\App\Http\Controllers\GiftHistory\GiftHistoryCaseController::class, 'show'])
             ->whereNumber('case')
             ->name('show');
     });
+        
+        
+        // 2026.04.27 追加
+        Route::get('/{case}/family', [\App\Http\Controllers\GiftHistory\GiftHistoryFamilyController::class, 'edit'])
+            ->whereNumber('case')
+            ->name('family.edit');
 
+        Route::post('/{case}/family/import', [\App\Http\Controllers\GiftHistory\GiftHistoryFamilyController::class, 'importFromZouyo'])
+            ->whereNumber('case')
+            ->name('family.import');
+
+        Route::post('/{case}/family', [\App\Http\Controllers\GiftHistory\GiftHistoryFamilyController::class, 'update'])
+            ->whereNumber('case')
+            ->name('family.update');
 
  
 Route::post('/zouyo/save/family', [ZouyoController::class, 'saveFamily'])->name('zouyo.save.family');

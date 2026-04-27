@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Model;
 
 class GiftHistoryCase extends Model
@@ -26,4 +27,17 @@ class GiftHistoryCase extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+    
+
+    public function familyMembers(): HasMany
+    {
+        return $this->hasMany(GiftHistoryFamilyMember::class, 'gift_history_case_id');
+    }
+
+    public function relationshipOptions(): HasMany
+    {
+        return $this->hasMany(GiftHistoryRelationshipOption::class, 'gift_history_case_id');
+    }
+
+
 }
