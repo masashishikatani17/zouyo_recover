@@ -117,6 +117,26 @@ Route::get('/past-gift-data', [\App\Http\Controllers\PastGiftController::class, 
 
 
 
+// 2026.04.27 追加
+// Gift History Management Routes
+// 贈与履歴管理システム。既存贈与名人DBは読み取り専用で参照し、
+// 保存先は gift_history 接続の専用DBに分離する。
+Route::middleware('auth')
+    ->prefix('gift-history')
+    ->name('gift-history.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\GiftHistory\GiftHistoryCaseController::class, 'index'])
+            ->name('index');
+
+        Route::post('/start', [\App\Http\Controllers\GiftHistory\GiftHistoryCaseController::class, 'start'])
+            ->name('start');
+
+        Route::get('/{case}', [\App\Http\Controllers\GiftHistory\GiftHistoryCaseController::class, 'show'])
+            ->whereNumber('case')
+            ->name('show');
+    });
+
+
  
 Route::post('/zouyo/save/family', [ZouyoController::class, 'saveFamily'])->name('zouyo.save.family');
 Route::post('/zouyo/save/past', [ZouyoController::class, 'savePast'])->name('zouyo.save.past');
