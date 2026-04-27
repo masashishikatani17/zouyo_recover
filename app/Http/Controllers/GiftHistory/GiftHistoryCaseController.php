@@ -4,6 +4,7 @@ namespace App\Http\Controllers\GiftHistory;
 
 use App\Http\Controllers\Controller;
 use App\Models\GiftHistoryCase;
+use App\Models\GiftHistoryEntry;
 use App\Models\GiftHistoryImportLog;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -121,9 +122,16 @@ class GiftHistoryCaseController extends Controller
     public function show(Request $request, GiftHistoryCase $case): View
     {
         $backUrl = $request->session()->get('gift_history.index_back_url', route('gift-history.index'));
-
+        
+        $entries = GiftHistoryEntry::query()
+            ->where('gift_history_case_id', $case->id)
+            ->orderBy('gift_date')
+            ->orderBy('id')
+            ->get();
+        
         return view('gift_history.cases.show', [
             'case' => $case,
+            'entries' => $entries,            
             'backUrl' => $backUrl,
         ]);
     }
