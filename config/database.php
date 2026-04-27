@@ -63,6 +63,68 @@ return [
             ]) : [],
         ],
 
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Gift History Database
+        |--------------------------------------------------------------------------
+        | 2026.04.27 追加
+        | 贈与履歴管理システム専用DBです。
+        | 既存の贈与名人DBとは分離し、贈与履歴管理側のテーブルだけを保存します。
+        |
+        */
+        'gift_history' => [
+            'driver' => 'mysql',
+            'url' => env('GIFT_HISTORY_DATABASE_URL'),
+            'host' => env('GIFT_HISTORY_DB_HOST', '127.0.0.1'),
+            'port' => env('GIFT_HISTORY_DB_PORT', '3306'),
+            'database' => env('GIFT_HISTORY_DB_DATABASE', 'zouyo_gift_history'),
+            'username' => env('GIFT_HISTORY_DB_USERNAME', 'forge'),
+            'password' => env('GIFT_HISTORY_DB_PASSWORD', ''),
+            'unix_socket' => env('DB_SOCKET', ''),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Zouyo Readonly Database
+        |--------------------------------------------------------------------------
+        | 2026.04.27 追加
+        | 既存の贈与名人DBを読み取り専用で参照するための接続です。
+        | No1氏名一覧、親族初回取り込み、税率表・控除額マスター参照に使用します。
+        |
+        */
+        'zouyo_readonly' => [
+            'driver' => 'mysql',
+            'url' => env('ZOUYO_READONLY_DATABASE_URL'),
+            'host' => env('ZOUYO_READONLY_DB_HOST', '127.0.0.1'),
+            'port' => env('ZOUYO_READONLY_DB_PORT', '3306'),
+            'database' => env('ZOUYO_READONLY_DB_DATABASE', 'zouyo'),
+            'username' => env('ZOUYO_READONLY_DB_USERNAME', 'forge'),
+            'password' => env('ZOUYO_READONLY_DB_PASSWORD', ''),
+            'unix_socket' => env('DB_SOCKET', ''),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
+
+
         'pgsql' => [
             'driver' => 'pgsql',
             'url' => env('DATABASE_URL'),
