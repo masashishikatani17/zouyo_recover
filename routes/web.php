@@ -144,6 +144,13 @@ Route::middleware('auth')
             ->whereNumber('case')
             ->name('family.update');
 
+        Route::get('/{case}/entries/create', [\App\Http\Controllers\GiftHistory\GiftHistoryEntryController::class, 'create'])
+            ->whereNumber('case')
+            ->name('entries.create');
+
+        Route::post('/{case}/entries', [\App\Http\Controllers\GiftHistory\GiftHistoryEntryController::class, 'store'])
+            ->whereNumber('case')
+            ->name('entries.store');
 
         Route::get('/{case}', [\App\Http\Controllers\GiftHistory\GiftHistoryCaseController::class, 'show'])
             ->whereNumber('case')

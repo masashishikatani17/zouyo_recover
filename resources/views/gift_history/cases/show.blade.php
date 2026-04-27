@@ -144,6 +144,7 @@
         <div class="buttons">
             <a href="{{ $backUrl }}" class="btn btn-muted">一覧に戻る</a>
             <a href="{{ route('gift-history.family.edit', $case) }}" class="btn btn-primary">親族入力へ</a>
+            <a href="{{ route('gift-history.entries.create', $case) }}" class="btn btn-primary">生前贈与登録へ</a>            
             <a href="{{ route('gift-history.index') }}" class="btn btn-primary">贈与履歴一覧へ</a>
         </div>
     </div>

@@ -38,6 +38,12 @@ class GiftHistoryCase extends Model
     {
         return $this->hasMany(GiftHistoryRelationshipOption::class, 'gift_history_case_id');
     }
+    
+
+    public function entries(): HasMany
+    {
+        return $this->hasMany(GiftHistoryEntry::class, 'gift_history_case_id');
+    }    
 
 
 }
